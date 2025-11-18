@@ -1,0 +1,307 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>Reference Viewer Pro</title>
+    <link rel="icon" href="{{ url_for('static', filename='favicon.ico') }}">
+    <script src="https://unpkg.com/vue@3/dist/vue.global.js"></script>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <style>
+        body { background-color: #1a1a1a; color: #e5e5e5; overflow: hidden; user-select: none; overscroll-behavior: none; }
+        .viewer-container { height: 100vh; width: 100vw; position: relative; overflow: hidden; cursor: grab; touch-action: none; }
+        .viewer-container:active { cursor: grabbing; }
+        .transform-layer { width: 100%; height: 100%; display: flex; justify-content: center; align-items: center; transform-origin: center center; will-change: transform; }
+        img.main-img { max-width: 90vw; max-height: 90vh; object-fit: contain; pointer-events: none; box-shadow: 0 10px 30px rgba(0,0,0,0.5); transition: opacity 0.2s ease-in-out; }
+        .overlay-ui { position: absolute; z-index: 20; pointer-events: none; width: 100%; height: 100%; top: 0; left: 0; }
+        .ui-element { pointer-events: auto; background: rgba(0, 0, 0, 0.7); padding: 8px 16px; border-radius: 8px; backdrop-filter: blur(5px); transition: opacity 0.2s; }
+        .ui-btn { padding: 4px 12px; border-radius: 4px; transition: background 0.2s; display: flex; align-items: center; justify-content: center; gap: 4px; }
+        .ui-btn:hover { background: rgba(255,255,255,0.2); }
+        .ui-btn:disabled { opacity: 0.3; cursor: not-allowed; }
+        .btn-primary { background: #3b82f6; color: white; font-weight: bold; }
+        .btn-primary:hover { background: #2563eb; }
+        .fav-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); gap: 1rem; padding: 1rem; }
+        .fav-item { aspect-ratio: 1; overflow: hidden; border-radius: 8px; position: relative; cursor: pointer; border: 2px solid transparent; transition: transform 0.2s; }
+        .fav-item:hover { transform: scale(1.05); border-color: #3b82f6; z-index: 10; }
+        .fav-item img { width: 100%; height: 100%; object-fit: cover; }
+        .loader-overlay { position: absolute; inset: 0; display: flex; justify-content: center; align-items: center; background: rgba(26, 26, 26, 0.5); backdrop-filter: blur(2px); z-index: 5; }
+        .spinner { width: 50px; height: 50px; border: 5px solid rgba(255, 255, 255, 0.1); border-left-color: #3b82f6; border-radius: 50%; animation: spin 0.8s linear infinite; }
+        @keyframes spin { to { transform: rotate(360deg); } }
+        .custom-scroll::-webkit-scrollbar { width: 8px; }
+        .custom-scroll::-webkit-scrollbar-track { background: rgba(0,0,0,0.2); }
+        .custom-scroll::-webkit-scrollbar-thumb { background: #4b5563; border-radius: 4px; }
+        .custom-scroll::-webkit-scrollbar-thumb:hover { background: #6b7280; }
+        .no-spinners::-webkit-inner-spin-button, .no-spinners::-webkit-outer-spin-button { -webkit-appearance: none; margin: 0; }
+        .no-spinners { -moz-appearance: textfield; }
+        .fade-enter-active, .fade-leave-active { transition: opacity 0.3s; }
+        .fade-enter-from, .fade-leave-to { opacity: 0; }
+    </style>
+</head>
+<body>
+{% raw %}
+<div id="app">
+    <div class="viewer-container" ref="viewer" @wheel="handleWheel" @gesturestart="handleGestureStart" @gesturechange="handleGestureChange" @gestureend="handleGestureEnd" @mousedown="startDrag" @mousemove="onDrag" @mouseup="stopDrag" @mouseleave="stopDrag" @dblclick="resetTransform">
+        <transition name="fade"><div v-if="isLoading" class="loader-overlay"><div class="spinner"></div></div></transition>
+        <div class="transform-layer" :style="layerStyle">
+            <img v-if="currentImage" :src="currentUrl" class="main-img" :class="{ 'grayscale': grayscaleMode, 'opacity-0': isLoading }" :style="imageStyle" @load="onImageLoaded" @error="onImageError">
+            <div v-else-if="!isLoading" class="text-gray-500 text-2xl text-center select-none"><p>Press <span class="text-blue-400 font-bold">SPACE</span> to start.</p></div>
+        </div>
+    </div>
+    <div class="overlay-ui flex flex-col justify-between p-4">
+        <div class="flex justify-between items-start">
+            <div class="ui-element flex gap-4 items-center">
+                <button @click="showSettings = !showSettings" class="ui-btn">⚙️ Config</button>
+                <button @click="showFavorites = !showFavorites" class="ui-btn text-yellow-400">★ Favorites ({{favorites.length}})</button>
+                <div class="text-xl font-mono font-bold text-white w-16 text-center cursor-default">{{ formatTime(timer) }}</div>
+            </div>
+            <div class="ui-element text-xs text-gray-300 flex flex-col items-end" v-if="currentImage">
+                <span class="opacity-50">{{ currentImage.folder_root }}</span>
+                <span class="font-bold text-white text-sm truncate max-w-md">{{ currentImage.filename }}</span>
+                <div class="text-blue-300 mt-1 text-[10px] flex items-center gap-1">
+                    <span v-if="!isEditingIndex" @click="startEditingIndex" class="cursor-pointer hover:text-white border-b border-transparent hover:border-blue-300 transition-colors font-bold" title="Click to jump to number">{{ currentIndex + 1 }}</span>
+                    <input v-else ref="indexInput" type="number" v-model="tempIndexValue" @blur="commitIndexChange" @keydown.enter="commitIndexChange" class="w-12 bg-gray-800 text-white border border-blue-500 rounded px-1 text-center no-spinners outline-none text-[10px]">
+                    <span>/ {{ siblings.length }} (Folder)</span>
+                </div>
+            </div>
+        </div>
+        <div class="flex justify-center mb-4">
+            <div class="ui-element flex gap-2 items-center shadow-xl">
+                <div class="flex gap-1 mr-2 border-r border-gray-600 pr-2">
+                    <button @click="goHistory(-1)" :disabled="historyIndex <= 0" title="Back" class="ui-btn text-xl text-yellow-400">↶</button>
+                    <button @click="goHistory(1)" :disabled="historyIndex >= history.length - 1" title="Forward" class="ui-btn text-xl text-yellow-400">↷</button>
+                </div>
+                <div class="flex gap-1 mr-4 border-r border-gray-600 pr-4">
+                    <button @click="navSibling(-1)" title="Previous" class="ui-btn text-xl">◀</button>
+                    <button @click="navSibling(1)" title="Next" class="ui-btn text-xl">▶</button>
+                </div>
+                <button @click="togglePlay" title="Pause" class="ui-btn text-xl min-w-[40px]">{{ isPaused ? '▶️' : '⏸' }}</button>
+                <button @click="loadRandomImage" title="Random (Space)" class="ui-btn btn-primary shadow-lg"><span>🎲 Random</span></button>
+                <div class="w-px h-6 bg-gray-600 mx-2"></div>
+                <button @click="toggleFavorite" title="Favorite (M)" class="ui-btn text-xl transition-colors" :class="isCurrentFavorite ? 'text-red-500' : 'text-gray-400'">{{ isCurrentFavorite ? '❤️' : '🤍' }}</button>
+                <div class="w-px h-6 bg-gray-600 mx-2"></div>
+                <button @click="flipH = !flipH" title="Flip (F)" class="ui-btn font-bold">↔</button>
+                <button @click="rotateRight" title="Rotate (R)" class="ui-btn font-bold">⟳</button>
+                <button @click="grayscaleMode = !grayscaleMode" title="B/W (G)" class="ui-btn font-bold" :class="grayscaleMode ? 'bg-white text-black hover:bg-gray-200' : ''">BW</button>
+            </div>
+        </div>
+    </div>
+    <transition name="fade">
+        <div v-if="showSettings" class="absolute inset-0 bg-black/80 z-50 flex items-center justify-center p-10 backdrop-blur-sm">
+            <div class="bg-gray-800 p-6 rounded-xl max-w-3xl w-full h-[80vh] flex flex-col shadow-2xl border border-gray-700">
+                <div class="flex justify-between items-center mb-4 border-b border-gray-700 pb-4 shrink-0">
+                    <h2 class="text-2xl font-bold text-white">Libraries</h2>
+                    <button @click="refreshLibrary" :disabled="isRefreshing" class="text-xs bg-gray-700 hover:bg-gray-600 text-gray-300 px-3 py-1 rounded flex items-center gap-2 transition-colors border border-gray-600">
+                        <span v-if="isRefreshing">⏳ Scanning...</span><span v-else>🔄 Refresh Changes</span>
+                    </button>
+                    <button @click="showSettings = false" class="text-gray-400 hover:text-white text-2xl ml-4">✕</button>
+                </div>
+                <div class="flex flex-col gap-3 mb-4 shrink-0">
+                    <input type="text" v-model="searchQuery" placeholder="🔍 Search folder..." class="w-full bg-gray-900 border border-gray-600 rounded p-2 text-white focus:border-blue-500 focus:outline-none">
+                    <div class="flex justify-between items-center">
+                        <span class="text-xs text-gray-400 uppercase font-bold">Showing {{ filteredFolders.length }} of {{ folders.length }}</span>
+                        <label class="flex items-center gap-2 cursor-pointer text-sm text-blue-300 hover:text-white select-none"><input type="checkbox" @change="toggleVisibleFolders" :checked="areAllVisibleSelected"> {{ areAllVisibleSelected ? 'Deselect Visible' : 'Select Visible' }}</label>
+                    </div>
+                </div>
+                <div class="flex-1 overflow-y-auto custom-scroll bg-gray-900/50 rounded border border-gray-700 p-2">
+                    <div v-if="filteredFolders.length === 0" class="text-center text-gray-500 py-8">No folders match your search.</div>
+                    <label v-for="folder in filteredFolders" :key="folder" @dblclick.prevent="selectOnly(folder)" title="Double click to select ONLY this folder" class="flex items-start gap-3 p-3 border-b border-gray-700/50 hover:bg-gray-700 cursor-pointer transition-colors last:border-0 select-none">
+                        <input type="checkbox" :value="folder" v-model="selectedFolders" class="mt-1 w-4 h-4 accent-blue-500 shrink-0"><span class="text-sm text-gray-200 break-words leading-snug">{{ folder }}</span>
+                    </label>
+                </div>
+                <div class="flex justify-end gap-4 pt-4 border-t border-gray-700 shrink-0 mt-4">
+                    <button @click="showSettings = false" class="text-gray-400 hover:text-white px-4 py-2">Cancel</button>
+                    <button @click="saveAndStart" class="bg-blue-600 hover:bg-blue-500 text-white px-8 py-2 rounded font-bold shadow-lg">Start</button>
+                </div>
+            </div>
+        </div>
+    </transition>
+    <transition name="fade">
+        <div v-if="showFavorites" class="absolute inset-0 bg-black/90 z-50 flex flex-col p-6 backdrop-blur-md">
+            <div class="flex justify-between items-center mb-6">
+                <h2 class="text-3xl font-bold text-yellow-400">❤️ Your Favorites</h2>
+                <button @click="showFavorites = false" class="text-white hover:text-red-400 text-4xl">✕</button>
+            </div>
+            <div class="flex-1 overflow-y-auto rounded-xl bg-gray-900/50 border border-gray-800 p-4">
+                <div v-if="favorites.length === 0" class="h-full flex flex-col items-center justify-center text-gray-500"><div class="text-6xl mb-4">💔</div><p class="text-xl">You don't have any favorites yet.</p></div>
+                <div v-else class="fav-grid">
+                    <div v-for="favPath in favorites" :key="favPath" class="fav-item group" @click="loadFavorite(favPath)">
+                        <img :src="`/media/${favPath}`" loading="lazy" alt="Reference">
+                        <div class="absolute inset-0 bg-black/50 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center"><span class="text-white font-bold">Open</span></div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </transition>
+</div>
+{% endraw %}
+
+<script>
+    const { createApp } = Vue;
+    createApp({
+        data() {
+            return {
+                folders: [], selectedFolders: [], searchQuery: '', 
+                currentImage: null, siblings: [], currentIndex: 0,
+                history: [], historyIndex: -1, favorites: [], 
+                showFavorites: false, showSettings: false, isLoading: false, isRefreshing: false,
+                
+                isEditingIndex: false, 
+                tempIndexValue: 1, // NEW: Buffer for smooth editing
+
+                timer: 0, isPaused: false, timerInterval: null, grayscaleMode: false,
+                scale: 1, startScale: 1, rotation: 0, flipH: false, posX: 0, posY: 0,
+                isDragging: false, dragStartX: 0, dragStartY: 0,
+            }
+        },
+        computed: {
+            currentUrl() { return this.currentImage ? `/media/${this.currentImage.path}` : ''; },
+            layerStyle() { return { transform: `translate(${this.posX}px, ${this.posY}px) rotate(${this.rotation}deg) scale(${this.scale})` }; },
+            imageStyle() { return { transform: this.flipH ? 'scaleX(-1)' : 'scaleX(1)' }; },
+            isCurrentFavorite() { return this.currentImage && this.favorites.includes(this.currentImage.path); },
+            filteredFolders() {
+                if (!this.searchQuery) return this.folders;
+                const query = this.searchQuery.toLowerCase();
+                return this.folders.filter(f => f.toLowerCase().includes(query));
+            },
+            areAllVisibleSelected() {
+                if (this.filteredFolders.length === 0) return false;
+                return this.filteredFolders.every(f => this.selectedFolders.includes(f));
+            }
+        },
+        mounted() {
+            this.fetchFolders(); this.fetchFavorites();
+            window.addEventListener('keydown', this.handleKeydown);
+            this.startTimer();
+        },
+        methods: {
+            setLoading(state) { this.isLoading = state; },
+            onImageLoaded() { this.isLoading = false; },
+            onImageError() { this.isLoading = false; },
+            async fetchFolders() {
+                const res = await fetch('/api/structure');
+                this.folders = await res.json();
+                this.selectedFolders = [...this.folders]; 
+                this.loadRandomImage(); 
+            },
+            async refreshLibrary() {
+                this.isRefreshing = true;
+                try { await fetch('/api/cache/clear', { method: 'POST' }); await this.fetchFolders(); alert("Libraries updated."); } 
+                catch (e) { console.error(e); alert("Error."); } finally { this.isRefreshing = false; }
+            },
+            toggleVisibleFolders() {
+                if (this.areAllVisibleSelected) { this.selectedFolders = this.selectedFolders.filter(f => !this.filteredFolders.includes(f)); } 
+                else { const newSelection = new Set([...this.selectedFolders, ...this.filteredFolders]); this.selectedFolders = Array.from(newSelection); }
+            },
+            selectOnly(folder) { this.selectedFolders = [folder]; },
+            async fetchFavorites() { try { const res = await fetch('/api/favorites'); this.favorites = await res.json(); } catch (e) {} },
+            async toggleFavorite() {
+                if (!this.currentImage) return;
+                const path = this.currentImage.path;
+                if (this.favorites.includes(path)) { this.favorites = this.favorites.filter(f => f !== path); } else { this.favorites.push(path); }
+                try { await fetch('/api/favorites', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ path: path }) }); } catch (e) { this.fetchFavorites(); }
+            },
+            async loadRandomImage() {
+                if (this.selectedFolders.length === 0) { this.showSettings = true; return; }
+                this.setLoading(true); this.resetTransform(); this.resetTimer();
+                try {
+                    const res = await fetch('/api/random', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ folders: this.selectedFolders }) });
+                    const data = await res.json(); if (data.error) throw new Error(data.error);
+                    this.currentImage = data; this.siblings = data.siblings; this.currentIndex = data.index;
+                    this.pushToHistory(data);
+                } catch (e) { console.error(e); this.setLoading(false); }
+            },
+            async loadFavorite(path) {
+                this.showFavorites = false; this.setLoading(true); this.resetTransform(); this.resetTimer();
+                try {
+                    const res = await fetch(`/api/context?path=${encodeURIComponent(path)}`);
+                    const data = await res.json(); if (data.error) throw new Error(data.error);
+                    this.currentImage = data; this.siblings = data.siblings; this.currentIndex = data.index;
+                    this.pushToHistory(data);
+                } catch (e) { console.error(e); this.setLoading(false); alert("Image not found."); }
+            },
+            navSibling(offset) {
+                if (!this.siblings.length) return;
+                let newIndex = this.currentIndex + offset;
+                if (newIndex < 0) newIndex = 0; if (newIndex >= this.siblings.length) newIndex = this.siblings.length - 1;
+                if (newIndex === this.currentIndex) return;
+                this.jumpToIndex(newIndex);
+            },
+            jumpToIndex(index) {
+                this.setLoading(true);
+                this.currentIndex = index;
+                const newPath = this.siblings[index];
+                const newState = { ...this.currentImage, path: newPath, filename: newPath.split('/').pop(), index: index, siblings: this.siblings };
+                this.currentImage = newState; this.resetTransform(); this.pushToHistory(newState);
+            },
+            // --- FIX DEL INPUT ---
+            startEditingIndex() {
+                this.tempIndexValue = this.currentIndex + 1; // Copiamos el valor actual a la variable temporal
+                this.isEditingIndex = true;
+                this.$nextTick(() => { if(this.$refs.indexInput) { this.$refs.indexInput.focus(); this.$refs.indexInput.select(); } });
+            },
+            commitIndexChange() {
+                this.isEditingIndex = false;
+                let val = parseInt(this.tempIndexValue); // Leemos de la temporal
+                if (isNaN(val)) return;
+                let targetIndex = val - 1;
+                if (targetIndex < 0) targetIndex = 0;
+                if (targetIndex >= this.siblings.length) targetIndex = this.siblings.length - 1;
+                if (targetIndex !== this.currentIndex) { this.jumpToIndex(targetIndex); }
+            },
+            pushToHistory(imageData) {
+                if (this.historyIndex < this.history.length - 1) { this.history = this.history.slice(0, this.historyIndex + 1); }
+                const snapshot = JSON.parse(JSON.stringify(imageData));
+                this.history.push(snapshot); this.historyIndex = this.history.length - 1;
+            },
+            restoreFromHistory(index) {
+                this.setLoading(true);
+                const data = this.history[index];
+                this.currentImage = data; this.siblings = data.siblings; this.currentIndex = data.index;
+                this.resetTransform();
+            },
+            goHistory(direction) {
+                const newIndex = this.historyIndex + direction;
+                if (newIndex >= 0 && newIndex < this.history.length) { this.historyIndex = newIndex; this.restoreFromHistory(newIndex); }
+            },
+            saveAndStart() { this.showSettings = false; this.loadRandomImage(); },
+            handleWheel(e) {
+                e.preventDefault();
+                if (e.ctrlKey || e.metaKey) { const zoomFactor = 1 - (e.deltaY * 0.01); this.applyZoom(zoomFactor); return; }
+                const isTrackpad = Math.abs(e.deltaY) < 40 && e.deltaMode === 0;
+                const hasHorizontal = Math.abs(e.deltaX) > 0;
+                if (hasHorizontal || isTrackpad) { this.posX -= e.deltaX; this.posY -= e.deltaY; } 
+                else { const direction = e.deltaY > 0 ? 0.9 : 1.1; this.applyZoom(direction); }
+            },
+            applyZoom(factor) { let newScale = this.scale * factor; this.scale = Math.min(Math.max(0.1, newScale), 10); },
+            handleGestureStart(e) { e.preventDefault(); this.startScale = this.scale; },
+            handleGestureChange(e) { e.preventDefault(); this.scale = Math.min(Math.max(0.1, this.startScale * e.scale), 10); },
+            handleGestureEnd(e) { e.preventDefault(); },
+            startDrag(e) { if (e.button !== 0) return; this.isDragging = true; this.dragStartX = e.clientX - this.posX; this.dragStartY = e.clientY - this.posY; },
+            onDrag(e) { if (!this.isDragging) return; e.preventDefault(); this.posX = e.clientX - this.dragStartX; this.posY = e.clientY - this.dragStartY; },
+            stopDrag() { this.isDragging = false; },
+            resetTransform() { this.scale = 1; this.rotation = 0; this.flipH = false; this.posX = 0; this.posY = 0; },
+            rotateRight() { this.rotation += 90; },
+            startTimer() { this.timerInterval = setInterval(() => { if (!this.isPaused && this.currentImage && !this.showSettings && !this.showFavorites && !this.isLoading) this.timer++; }, 1000); },
+            resetTimer() { this.timer = 0; this.isPaused = false; }, togglePlay() { this.isPaused = !this.isPaused; },
+            formatTime(s) { return `${Math.floor(s/60).toString().padStart(2,'0')}:${(s%60).toString().padStart(2,'0')}`; },
+            handleKeydown(e) {
+                if ((this.showSettings || this.showFavorites || this.isEditingIndex) && e.key !== 'Escape' && e.key !== 'Enter') return;
+                if (e.key === ' ' && e.target.tagName !== 'INPUT') e.preventDefault();
+                switch(e.key) {
+                    case ' ': this.loadRandomImage(); break;
+                    case 'ArrowRight': this.navSibling(1); break;
+                    case 'ArrowLeft': this.navSibling(-1); break;
+                    case 'ArrowDown': e.preventDefault(); this.goHistory(-1); break;
+                    case 'ArrowUp': e.preventDefault(); this.goHistory(1); break;
+                    case 'f': this.flipH = !this.flipH; break;
+                    case 'r': this.rotateRight(); break;
+                    case 'g': this.grayscaleMode = !this.grayscaleMode; break;
+                    case 'm': this.toggleFavorite(); break;
+                    case 'Escape': this.showSettings = false; this.showFavorites = false; this.isEditingIndex = false; break;
+                }
+            }
+        }
+    }).mount('#app');
+</script>
+</body>
+</html>

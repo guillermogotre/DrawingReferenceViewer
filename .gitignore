@@ -1,0 +1,7 @@
+__pycache__/
+*.pyc
+flask_cache/
+favorites.json
+.env
+.vscode/
+.DS_Store
