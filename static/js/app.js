@@ -20,6 +20,8 @@ createApp({
             ],
             dragStopIndex: -1,
             lastStopTap: 0, // For double tap detection
+            ticking: false, // For RAF throttling
+            repaintKey: 0, // For forcing mobile repaints
         }
     },
     computed: {
@@ -89,6 +91,48 @@ createApp({
                 values.push(val);
             }
             return values.join(' ');
+        },
+        currentUrl() {
+            if (!this.currentImage) return '';
+            // Ensure path starts with /media/
+            return `/media/${this.currentImage.path}`;
+        },
+        layerStyle() {
+            return {
+                transform: `translate3d(${this.posX}px, ${this.posY}px, 0) scale(${this.scale})`
+            }
+        },
+        imageStyle() {
+            const style = {
+                transform: `rotate(${this.rotation}deg) scaleX(${this.flipH ? -1 : 1})`
+            };
+
+            // Fix for mobile updates:
+            // Use invisible box-shadow change to force layer repaint
+            if (this.posterizeMode) {
+                style.boxShadow = `0 0 0 ${this.repaintKey}px transparent`;
+            }
+
+            return style;
+        }
+    },
+    watch: {
+        posterizeTableValues() {
+            this.updatePosterizeDOM();
+        },
+        posterizeMode(val) {
+            if (val) {
+                this.$nextTick(() => {
+                    this.updatePosterizeDOM();
+                    this.forceRepaint();
+                });
+            }
+        },
+        showPosterizeUI(val) {
+            if (!val) {
+                this.dragStopIndex = -1;
+                this.ticking = false;
+            }
         }
     },
     mounted() {
@@ -96,8 +140,9 @@ createApp({
         window.addEventListener('keydown', this.handleKey);
         window.addEventListener('mousemove', this.dragStop);
         window.addEventListener('mouseup', this.stopDragStop);
-        window.addEventListener('touchmove', this.dragStop);
+        window.addEventListener('touchmove', this.dragStop, { passive: false });
         window.addEventListener('touchend', this.stopDragStop);
+        window.addEventListener('touchcancel', this.stopDragStop);
         this.startTimer();
     },
     beforeUnmount() {
@@ -106,14 +151,35 @@ createApp({
         window.removeEventListener('mouseup', this.stopDragStop);
         window.removeEventListener('touchmove', this.dragStop);
         window.removeEventListener('touchend', this.stopDragStop);
+        window.removeEventListener('touchcancel', this.stopDragStop);
         clearInterval(this.timerInterval);
     },
     updated() {
         lucide.createIcons();
     },
     methods: {
+        updatePosterizeDOM() {
+            const filter = document.getElementById('posterizeFilter');
+            if (filter) {
+                const funcs = filter.querySelectorAll('feFuncR, feFuncG, feFuncB');
+                const val = this.posterizeTableValues;
+                funcs.forEach(func => func.setAttribute('tableValues', val));
+            }
+        },
+        forceRepaint() {
+            const filter = document.getElementById('posterizeFilter');
+            if (filter) {
+                filter.style.display = 'none';
+                void filter.offsetHeight;
+                filter.style.display = '';
+            }
+        },
         setLoading(state) { this.isLoading = state; },
-        onImageLoaded() { this.isLoading = false; },
+        onImageLoaded() {
+            this.isLoading = false;
+            // Force a repaint when image loads to ensure filters are ready
+            this.$nextTick(() => this.forceRepaint());
+        },
         onImageError() { this.isLoading = false; },
         async fetchFolders() {
             const res = await fetch('/api/structure');
@@ -375,6 +441,7 @@ createApp({
                 // Enable
                 this.posterizeMode = true;
                 this.showPosterizeUI = true;
+                this.uiVisible = true; // Ensure UI is visible
                 this.grayscaleMode = false;
                 // Initialize default stops if empty
                 if (this.posterizeStops.length === 0) {
@@ -387,6 +454,7 @@ createApp({
                 if (!this.showPosterizeUI) {
                     // UI hidden, just show it
                     this.showPosterizeUI = true;
+                    this.uiVisible = true; // Ensure UI is visible
                 } else {
                     // UI visible, disable everything
                     this.posterizeMode = false;
@@ -431,14 +499,33 @@ createApp({
             if (e.cancelable) e.preventDefault();
 
             const rect = this.$refs.sliderTrack.getBoundingClientRect();
-            const clientX = e.touches ? e.touches[0].clientX : e.clientX;
-            let pos = (clientX - rect.left) / rect.width;
-            pos = Math.max(0, Math.min(1, pos));
+            let clientX;
+            if (e.touches && e.touches.length > 0) {
+                clientX = e.touches[0].clientX;
+            } else {
+                clientX = e.clientX;
+            }
 
-            this.posterizeStops[this.dragStopIndex].pos = pos;
+            if (this.ticking) return;
+            this.ticking = true;
+
+            requestAnimationFrame(() => {
+                try {
+                    let pos = (clientX - rect.left) / rect.width;
+                    pos = Math.max(0, Math.min(1, pos));
+
+                    this.posterizeStops[this.dragStopIndex].pos = pos;
+
+                    // Trigger lightweight repaint
+                    this.repaintKey = (this.repaintKey + 1) % 2;
+                } finally {
+                    this.ticking = false;
+                }
+            });
         },
         stopDragStop() {
             this.dragStopIndex = -1;
+            this.ticking = false;
         },
         resetTransform() { this.scale = 0.9; this.rotation = 0; this.flipH = false; this.posX = 0; this.posY = 0; },
         rotateRight() { this.rotation += 90; },

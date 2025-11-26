@@ -74,7 +74,7 @@ img.main-img {
 }
 
 .filter-posterize {
-    filter: drop-shadow(0 10px 30px rgba(0, 0, 0, 0.5)) url(#posterizeFilter) !important;
+    filter: url(#posterizeFilter) !important;
 }
 
 .overlay-ui {

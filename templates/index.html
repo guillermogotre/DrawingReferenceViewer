@@ -31,9 +31,9 @@
                     <feColorMatrix type="matrix"
                         values="0.33 0.33 0.33 0 0  0.33 0.33 0.33 0 0  0.33 0.33 0.33 0 0  0 0 0 1 0" result="gray" />
                     <feComponentTransfer in="gray">
-                        <feFuncR type="table" v-bind="{ tableValues: posterizeTableValues }" />
-                        <feFuncG type="table" v-bind="{ tableValues: posterizeTableValues }" />
-                        <feFuncB type="table" v-bind="{ tableValues: posterizeTableValues }" />
+                        <feFuncR type="table" />
+                        <feFuncG type="table" />
+                        <feFuncB type="table" />
                     </feComponentTransfer>
                 </filter>
             </defs>
@@ -48,9 +48,9 @@
                 </div>
             </transition>
             <div class="transform-layer" :style="layerStyle">
-                <img v-if="currentImage" :src="currentUrl" class="main-img"
-                    :class="{ 'filter-bw': grayscaleMode, 'filter-posterize': posterizeMode, 'opacity-0': isLoading }"
-                    :style="imageStyle" @load="onImageLoaded" @error="onImageError">
+                <img v-if="currentImage" :src="currentUrl" class="main-img transition-transform duration-200 ease-out"
+                    :class="{ 'filter-bw': grayscaleMode, 'filter-posterize': posterizeMode }" :style="imageStyle"
+                    alt="Reference" @load="onImageLoaded" @error="onImageError" draggable="false">
                 <div v-else-if="!isLoading" class="text-gray-500 text-2xl text-center select-none">
                     <p>Press <span class="text-blue-400 font-bold">SPACE</span> to start.</p>
                 </div>
@@ -275,7 +275,7 @@
             </div>
         </transition>
         <transition name="fade">
-            <div v-if="posterizeMode && showPosterizeUI"
+            <div v-if="posterizeMode && showPosterizeUI && uiVisible"
                 class="absolute bottom-20 left-1/2 -translate-x-1/2 z-40 w-full max-w-md px-4">
                 <div class="ui-element flex flex-col gap-3 shadow-2xl border border-gray-700/50">
                     <div class="flex justify-between items-center">
