@@ -16,6 +16,7 @@
     <!-- Icons -->
     <script src="https://unpkg.com/lucide@latest"></script>
 
+    <!-- External Dependencies: Vue 3, TailwindCSS, Lucide Icons -->
     <script src="https://unpkg.com/vue@3/dist/vue.global.js"></script>
     <script src="https://cdn.tailwindcss.com"></script>
     <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}">
@@ -24,12 +25,20 @@
 <body>
     {% raw %}
     <div id="app">
-        <!-- SVG Filters -->
+        <!-- 
+            SVG FILTERS DEFINITION 
+            Hidden SVG block to define the filters used by CSS.
+            - posterizeFilter: Converts image to grayscale and then maps to discrete bands.
+        -->
         <svg style="position: absolute; width: 0; height: 0; overflow: hidden;" aria-hidden="true">
             <defs>
                 <filter id="posterizeFilter">
+                    <!-- 1. Desaturate to grayscale using a luminance matrix -->
                     <feColorMatrix type="matrix"
                         values="0.33 0.33 0.33 0 0  0.33 0.33 0.33 0 0  0.33 0.33 0.33 0 0  0 0 0 1 0" result="gray" />
+
+                    <!-- 2. Map grayscale values to discrete bands using a transfer function -->
+                    <!-- The 'tableValues' attribute is dynamically updated by app.js -->
                     <feComponentTransfer in="gray">
                         <feFuncR type="table" />
                         <feFuncG type="table" />
@@ -39,25 +48,44 @@
             </defs>
         </svg>
 
+        <!-- 
+            MAIN VIEWPORT 
+            Handles gestures (pan, zoom, touch) and displays the image.
+        -->
         <div class="viewer-container" ref="viewer" @wheel="handleWheel" @touchstart="handleTouchStart"
             @touchmove="handleTouchMove" @touchend="handleTouchEnd" @mousedown="startDrag" @mousemove="onDrag"
             @mouseup="stopDrag" @mouseleave="stopDrag" @dblclick="resetTransform">
+
+            <!-- Loading Spinner -->
             <transition name="fade">
                 <div v-if="isLoading" class="loader-overlay">
                     <div class="spinner"></div>
                 </div>
             </transition>
+
+            <!-- Image Layer -->
+            <!-- transform-layer handles pan/zoom -->
             <div class="transform-layer" :style="layerStyle">
+                <!-- Main Image -->
+                <!-- :src uses currentUrl to ensure /media/ prefix -->
+                <!-- Classes handle filters and transitions -->
                 <img v-if="currentImage" :src="currentUrl" class="main-img transition-transform duration-200 ease-out"
                     :class="{ 'filter-bw': grayscaleMode, 'filter-posterize': posterizeMode }" :style="imageStyle"
                     alt="Reference" @load="onImageLoaded" @error="onImageError" draggable="false">
+
+                <!-- Empty State Message -->
                 <div v-else-if="!isLoading" class="text-gray-500 text-2xl text-center select-none">
                     <p>Press <span class="text-blue-400 font-bold">SPACE</span> to start.</p>
                 </div>
             </div>
         </div>
+        <!-- 
+            UI OVERLAY 
+            Contains top bar (Settings, Favorites, Timer) and bottom bar (Controls).
+        -->
         <div class="overlay-ui flex flex-col justify-between p-2 md:p-4">
             <div class="flex flex-col md:flex-row justify-between items-start gap-2 md:gap-0">
+                <!-- Top Left: Settings, Favorites, Timer -->
                 <div class="flex flex-wrap md:flex-nowrap items-center">
                     <div class="transition-all duration-300 ease-in-out overflow-hidden"
                         :class="uiVisible ? 'max-w-[300px] opacity-100 mr-2 md:mr-4' : 'max-w-0 opacity-0 mr-0'">
@@ -79,6 +107,7 @@
                         class="ui-element text-lg md:text-xl font-mono font-bold text-white min-w-[3.5rem] px-2 text-center cursor-default whitespace-nowrap">
                         {{ formatTime(timer) }}</div>
                 </div>
+                <!-- Top Right: Image Info & Index -->
                 <transition name="fade">
                     <div v-show="uiVisible"
                         class="ui-element text-xs text-gray-300 flex flex-col items-end w-full md:w-auto"
@@ -99,6 +128,7 @@
                     </div>
                 </transition>
             </div>
+            <!-- Bottom Controls -->
             <transition name="fade">
                 <div v-show="uiVisible" class="flex justify-center mb-2 md:mb-4">
                     <div

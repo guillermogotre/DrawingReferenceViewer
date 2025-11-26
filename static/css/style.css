@@ -1,9 +1,11 @@
+/* --- Global Reset & Box Sizing --- */
 *,
 *::before,
 *::after {
     box-sizing: border-box;
 }
 
+/* --- Root Variables (Colors, Radius, Shadows) --- */
 :root {
     --bg-dark: #0f0f0f;
     --bg-panel: rgba(20, 20, 20, 0.85);
@@ -18,6 +20,7 @@
     --shadow-lg: 0 10px 30px -10px rgba(0, 0, 0, 0.5);
 }
 
+/* --- Body & Main Layout --- */
 html,
 body {
     background-color: var(--bg-dark);
@@ -33,6 +36,7 @@ body {
     height: 100vh;
 }
 
+/* --- Viewer Container (Full Screen) --- */
 .viewer-container {
     position: fixed;
     top: 0;
@@ -50,6 +54,7 @@ body {
     cursor: grabbing;
 }
 
+/* --- Transform Layer (Pan/Zoom) --- */
 .transform-layer {
     width: 100%;
     height: 100%;
@@ -60,6 +65,7 @@ body {
     transform-origin: center center;
 }
 
+/* --- Image Styling & Filters --- */
 img.main-img {
     width: 100%;
     height: 100%;
@@ -77,6 +83,7 @@ img.main-img {
     filter: url(#posterizeFilter) !important;
 }
 
+/* --- UI Overlay --- */
 .overlay-ui {
     position: absolute;
     z-index: 20;
@@ -91,6 +98,7 @@ img.main-img {
     padding-right: env(safe-area-inset-right);
 }
 
+/* --- UI Elements (Panels) --- */
 .ui-element {
     pointer-events: auto;
     background: var(--bg-panel);
@@ -103,6 +111,7 @@ img.main-img {
     transition: all 0.2s ease;
 }
 
+/* --- Buttons --- */
 .ui-btn {
     padding: 8px;
     border-radius: var(--radius-sm);
@@ -152,6 +161,7 @@ img.main-img {
     box-shadow: 0 4px 8px rgba(99, 102, 241, 0.4);
 }
 
+/* --- Favorites Grid --- */
 .fav-grid {
     display: grid;
     grid-template-columns: repeat(auto-fill, minmax(100px, 1fr));
@@ -189,6 +199,7 @@ img.main-img {
     object-fit: cover;
 }
 
+/* --- Loading Spinner --- */
 .loader-overlay {
     position: absolute;
     inset: 0;
@@ -215,6 +226,7 @@ img.main-img {
     }
 }
 
+/* --- Utilities (Scrollbars, Inputs, Transitions) --- */
 .custom-scroll {
     touch-action: pan-y;
 }

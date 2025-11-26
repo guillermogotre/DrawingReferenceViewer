@@ -1,20 +1,38 @@
 const { createApp } = Vue;
 
+/**
+ * Main Vue Application
+ * Handles the logic for the Drawing Reference Viewer.
+ * Includes state management for images, folders, favorites, and UI interactions (zoom, pan, posterization).
+ */
 createApp({
     data() {
         return {
+            // --- Library State ---
             folders: [], selectedFolders: [], searchQuery: '',
+
+            // --- Image State ---
             currentImage: null, siblings: [], currentIndex: 0,
+
+            // --- History & Favorites ---
             history: [], historyIndex: -1, favorites: [],
+
+            // --- UI State ---
             showFavorites: false, showSettings: false, isLoading: false, isRefreshing: false,
 
+            // --- Navigation Input State ---
             isEditingIndex: false,
             tempIndexValue: 1, // Buffer for smooth editing
 
+            // --- Viewer State ---
             timer: 0, isPaused: false, timerInterval: null, grayscaleMode: false, posterizeMode: false, showPosterizeUI: false,
             scale: 0.9, startScale: 0.9, rotation: 0, flipH: false, posX: 0, posY: 0,
+
+            // --- Interaction State ---
             isDragging: false, dragStartX: 0, dragStartY: 0, lastTouchDist: 0,
             uiVisible: true, hasMoved: false,
+
+            // --- Posterization State ---
             posterizeStops: [
                 { pos: 0.5 }
             ],
@@ -39,11 +57,13 @@ createApp({
             return this.filteredFolders.every(f => this.selectedFolders.includes(f));
         },
         sliderGradient() {
+            // Generates the CSS linear-gradient for the slider track.
+            // This visualizes the posterization thresholds and the gray levels they map to.
             let stops = [...this.posterizeStops].sort((a, b) => a.pos - b.pos);
             let gradient = 'linear-gradient(to right';
 
             // Number of regions = stops.length + 1
-            // Values are equidistant: 0, 1/N, 2/N, ..., 1
+            // We map these regions to equidistant gray values: 0, 1/N, 2/N, ..., 1
             const numRegions = stops.length + 1;
 
             // Region 0 (Start to first stop)
@@ -94,10 +114,11 @@ createApp({
         },
         currentUrl() {
             if (!this.currentImage) return '';
-            // Ensure path starts with /media/
+            // Ensure path starts with /media/ to match the Flask route
             return `/media/${this.currentImage.path}`;
         },
         layerStyle() {
+            // Applies the pan/zoom transformation to the container layer
             return {
                 transform: `translate3d(${this.posX}px, ${this.posY}px, 0) scale(${this.scale})`
             }
@@ -107,8 +128,14 @@ createApp({
                 transform: `rotate(${this.rotation}deg) scaleX(${this.flipH ? -1 : 1})`
             };
 
-            // Fix for mobile updates:
-            // Use invisible box-shadow change to force layer repaint
+            // --- MOBILE UPDATE FIX ---
+            // On some mobile browsers, changing SVG filter attributes doesn't trigger a repaint
+            // of the element if the layer itself is considered "static".
+            // We use a "Hybrid Fix":
+            // 1. The filter is applied via CSS class (.filter-posterize) for reliability.
+            // 2. We toggle an invisible box-shadow here using `repaintKey`.
+            //    This forces the browser to re-composite the layer on every frame of the slider drag,
+            //    ensuring the posterization effect updates in real-time.
             if (this.posterizeMode) {
                 style.boxShadow = `0 0 0 ${this.repaintKey}px transparent`;
             }
@@ -159,6 +186,9 @@ createApp({
     },
     methods: {
         updatePosterizeDOM() {
+            // Manually updates the SVG filter attributes in the DOM.
+            // Vue's binding sometimes lags or fails for complex SVG attributes on mobile.
+            // Direct DOM manipulation ensures the filter definition stays in sync with the slider.
             const filter = document.getElementById('posterizeFilter');
             if (filter) {
                 const funcs = filter.querySelectorAll('feFuncR, feFuncG, feFuncB');
@@ -167,12 +197,9 @@ createApp({
             }
         },
         forceRepaint() {
-            const filter = document.getElementById('posterizeFilter');
-            if (filter) {
-                filter.style.display = 'none';
-                void filter.offsetHeight;
-                filter.style.display = '';
-            }
+            // Toggles the repaintKey to trigger the invisible box-shadow change
+            // defined in imageStyle. This wakes up the browser's compositor.
+            this.repaintKey = this.repaintKey === 0 ? 1 : 0;
         },
         setLoading(state) { this.isLoading = state; },
         onImageLoaded() {
@@ -181,6 +208,10 @@ createApp({
             this.$nextTick(() => this.forceRepaint());
         },
         onImageError() { this.isLoading = false; },
+        /**
+         * Fetches the folder structure from the backend.
+         * Initializes selectedFolders with all available folders.
+         */
         async fetchFolders() {
             const res = await fetch('/api/structure');
             this.folders = await res.json();
@@ -204,6 +235,10 @@ createApp({
             if (this.favorites.includes(path)) { this.favorites = this.favorites.filter(f => f !== path); } else { this.favorites.push(path); }
             try { await fetch('/api/favorites', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ path: path }) }); } catch (e) { this.fetchFavorites(); }
         },
+        /**
+         * Loads a random image from the selected folders.
+         * Resets transformation and timer.
+         */
         async loadRandomImage() {
             if (this.selectedFolders.length === 0) { this.showSettings = true; return; }
             this.setLoading(true); this.resetTransform(); this.resetTimer();
@@ -326,6 +361,10 @@ createApp({
         },
         applyZoom(factor) { let newScale = this.scale * factor; this.scale = Math.min(Math.max(0.1, newScale), 10); },
         // Touch handling
+        /**
+         * Handles the start of a touch event.
+         * Supports single touch for panning and double touch for pinch-zoom.
+         */
         handleTouchStart(e) {
             if (e.touches.length === 1) {
                 this.isDragging = true;
@@ -350,6 +389,10 @@ createApp({
                 this.startPos = { x: this.posX, y: this.posY };
             }
         },
+        /**
+         * Handles touch movement.
+         * Updates position for panning or scale/position for pinch-zoom.
+         */
         handleTouchMove(e) {
             e.preventDefault(); // Prevent scrolling
             if (e.touches.length === 1 && this.isDragging) {
@@ -532,6 +575,10 @@ createApp({
         startTimer() { this.timerInterval = setInterval(() => { if (!this.isPaused && this.currentImage && !this.showSettings && !this.showFavorites && !this.isLoading) this.timer++; }, 1000); },
         resetTimer() { this.timer = 0; this.isPaused = false; }, togglePlay() { this.isPaused = !this.isPaused; },
         formatTime(s) { return `${Math.floor(s / 60).toString().padStart(2, '0')}:${(s % 60).toString().padStart(2, '0')}`; },
+        /**
+         * Global keyboard event handler.
+         * Maps keys to actions (Space: Next, Arrows: Nav/History, F: Flip, R: Rotate, etc.)
+         */
         handleKey(e) {
             if ((this.showSettings || this.showFavorites || this.isEditingIndex) && e.key !== 'Escape' && e.key !== 'Enter') return;
             if (e.key === ' ' && e.target.tagName !== 'INPUT') e.preventDefault();

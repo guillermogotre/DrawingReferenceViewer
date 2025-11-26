@@ -1,3 +1,7 @@
+"""
+Backend for the Drawing Reference Viewer application.
+Handles image serving, caching, and favorites management.
+"""
 import os
 import random
 import json
@@ -25,13 +29,14 @@ FAV_FILE = "favorites.json"
 VALID_EXTENSIONS = ('.png', '.jpg', '.jpeg', '.gif', '.bmp', '.webp')
 
 # --- CACHE CONFIGURATION ---
-# We use FileSystemCache so the cache is shared among Gunicorn workers
-# and survives quick restarts.
+# We use FileSystemCache to persist cache data across server restarts and
+# share it among Gunicorn workers (if used in production).
+# This is crucial for performance when scanning large image directories.
 cache = Cache(app, config={
     'CACHE_TYPE': 'FileSystemCache',
     'CACHE_DIR': os.path.join(os.getcwd(), 'flask_cache'), # Local folder to store cache
-    'CACHE_DEFAULT_TIMEOUT': 86400, # 24 hours by default (or until you press Refresh)
-    'CACHE_THRESHOLD': 1000 # Maximum number of files in cache
+    'CACHE_DEFAULT_TIMEOUT': 86400, # 24 hours by default (or until user manually refreshes)
+    'CACHE_THRESHOLD': 1000 # Maximum number of items in cache
 })
 
 # --- CACHED UTILITIES ---
@@ -103,30 +108,52 @@ def get_siblings_context(rel_path):
 # --- FAVORITES MANAGEMENT ---
 
 def load_favorites():
+    """
+    Loads the list of favorite image paths from the JSON file.
+    Returns an empty list if the file doesn't exist or is invalid.
+    """
     if not os.path.exists(FAV_FILE): return []
     try:
         with open(FAV_FILE, 'r') as f: return json.load(f)
     except: return []
 
 def save_favorites(fav_list):
+    """
+    Saves the list of favorite image paths to the JSON file.
+    """
     with open(FAV_FILE, 'w') as f: json.dump(fav_list, f, indent=4)
+
+# --- ROUTES ---
 
 # --- ROUTES ---
 
 @app.route('/')
 def index():
+    """Serves the main single-page application."""
     return render_template('index.html')
 
 @app.route('/media/<path:filename>')
 def serve_image(filename):
+    """
+    Serves images from the configured BASE_DIR.
+    This route is essential because images are outside the static folder.
+    """
     return send_from_directory(BASE_DIR, filename)
 
 @app.route('/api/structure')
 def api_structure():
+    """
+    API Endpoint: Returns the folder structure of the image library.
+    Used by the frontend to populate the folder selection menu.
+    """
     return jsonify(get_folder_structure())
 
 @app.route('/api/random', methods=['GET', 'POST'])
 def api_random():
+    """
+    API Endpoint: Returns a random image from the selected folders.
+    Supports both GET (query params) and POST (JSON body) for folder selection.
+    """
     if request.method == 'POST':
         allowed_folders = request.json.get('folders', [])
     else:
@@ -136,26 +163,33 @@ def api_random():
         return jsonify({"error": "No folders selected"}), 400
 
     # Try up to 3 times to find a non-empty folder
+    # Try up to 3 times to find a non-empty folder to avoid returning 404 immediately
+    # if a selected folder happens to be empty.
     for _ in range(3):
         chosen_folder_root = random.choice(allowed_folders)
-        # THIS CALL IS NOW INSTANT IF DONE BEFORE
+        # This call is cached, so it's fast on subsequent requests
         images = get_all_images_in_subdir(chosen_folder_root)
         
         if images:
             chosen_image_rel = random.choice(images)
+            # Get context (siblings) for navigation (Next/Prev)
             siblings, index = get_siblings_context(chosen_image_rel)
             return jsonify({
-                "path": chosen_image_rel,
+                "path": chosen_image_rel, # Relative path for frontend use
                 "folder_root": chosen_folder_root,
                 "filename": os.path.basename(chosen_image_rel),
-                "siblings": siblings,
-                "index": index
+                "siblings": siblings, # List of sibling images for navigation
+                "index": index # Current index in the sibling list
             })
             
     return jsonify({"error": "Selected folders are empty"}), 404
 
 @app.route('/api/context')
 def api_context():
+    """
+    API Endpoint: Returns context (siblings) for a specific image path.
+    Used when loading a specific image (e.g., from favorites) to enable navigation.
+    """
     target_path = request.args.get('path')
     if not target_path: return jsonify({"error": "No path provided"}), 400
     full_path = os.path.join(BASE_DIR, target_path)
@@ -174,6 +208,11 @@ def api_context():
 
 @app.route('/api/favorites', methods=['GET', 'POST'])
 def handle_favorites():
+    """
+    API Endpoint: Manages favorite images.
+    GET: Returns the list of favorites.
+    POST: Toggles the favorite status of a specific image path.
+    """
     if request.method == 'POST':
         data = request.json
         path = data.get('path')
