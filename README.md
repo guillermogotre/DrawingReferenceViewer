@@ -11,6 +11,8 @@ A lightweight, self-hosted web application for browsing and viewing local drawin
 *   **Image Transformations:** Flip, rotate, and toggle grayscale mode on the fly.
 *   **Context Navigation:** Navigate to sibling files within the same folder without leaving the viewer.
 *   **Favorites:** Mark images as favorites for quick access later.
+*   **Posterization Tool:** Advanced grayscale posterization with customizable thresholds for value studies.
+*   **Mobile Ready:** Fully responsive design with touch gestures for zooming, panning, and interacting with tools.
 *   **Performance:** Server-side caching for handling libraries with thousands of images.
 
 ## Tech Stack
@@ -58,8 +60,35 @@ A lightweight, self-hosted web application for browsing and viewing local drawin
 | `F` | Flip Horizontally |
 | `R` | Rotate 90° |
 | `G` | Toggle Grayscale |
+| `P` | Toggle Posterization |
 | `M` | Toggle Favorite |
 | `ESC` | Close Menus |
+
+## Mobile & Touch Support
+
+The application is fully optimized for mobile devices and tablets (iPad, Android tablets):
+
+*   **Touch Gestures:**
+    *   **Pinch:** Zoom in/out.
+    *   **Drag:** Pan around the image.
+*   **Responsive UI:** All menus and overlays adapt to smaller screens.
+*   **Touch-Friendly Controls:** Larger buttons and sliders designed for touch interaction.
+
+## Posterization Tool
+
+The **Posterization Filter** allows you to break down an image into distinct tonal values, which is excellent for value studies.
+
+*   **Activation:** Click the "Layers" icon or press `P`.
+*   **How it works:**
+    *   **Handles:** The slider handles define the *thresholds* (cutoffs) between values.
+    *   **Values:** The app automatically calculates equidistant gray values based on the number of handles.
+        *   1 Handle = 2 Values (Black / White)
+        *   2 Handles = 3 Values (Black / Gray / White)
+        *   3 Handles = 4 Values (Black / Dark Gray / Light Gray / White)
+*   **Controls:**
+    *   **Add:** Click anywhere on the track to add a new threshold.
+    *   **Adjust:** Drag handles to change where the value transitions occur.
+    *   **Remove:** Double-click (or double-tap) a handle to remove it.
 
 ## Deployment
 
