@@ -3,17 +3,18 @@ const { createApp } = Vue;
 createApp({
     data() {
         return {
-            folders: [], selectedFolders: [], searchQuery: '', 
+            folders: [], selectedFolders: [], searchQuery: '',
             currentImage: null, siblings: [], currentIndex: 0,
-            history: [], historyIndex: -1, favorites: [], 
+            history: [], historyIndex: -1, favorites: [],
             showFavorites: false, showSettings: false, isLoading: false, isRefreshing: false,
-            
-            isEditingIndex: false, 
+
+            isEditingIndex: false,
             tempIndexValue: 1, // Buffer for smooth editing
 
             timer: 0, isPaused: false, timerInterval: null, grayscaleMode: false,
-            scale: 1, startScale: 1, rotation: 0, flipH: false, posX: 0, posY: 0,
-            isDragging: false, dragStartX: 0, dragStartY: 0,
+            scale: 0.9, startScale: 0.9, rotation: 0, flipH: false, posX: 0, posY: 0,
+            isDragging: false, dragStartX: 0, dragStartY: 0, lastTouchDist: 0,
+            uiVisible: true, hasMoved: false,
         }
     },
     computed: {
@@ -36,6 +37,9 @@ createApp({
         window.addEventListener('keydown', this.handleKeydown);
         this.startTimer();
     },
+    updated() {
+        lucide.createIcons();
+    },
     methods: {
         setLoading(state) { this.isLoading = state; },
         onImageLoaded() { this.isLoading = false; },
@@ -43,20 +47,20 @@ createApp({
         async fetchFolders() {
             const res = await fetch('/api/structure');
             this.folders = await res.json();
-            this.selectedFolders = [...this.folders]; 
-            this.loadRandomImage(); 
+            this.selectedFolders = [...this.folders];
+            this.loadRandomImage();
         },
         async refreshLibrary() {
             this.isRefreshing = true;
-            try { await fetch('/api/cache/clear', { method: 'POST' }); await this.fetchFolders(); alert("Libraries updated."); } 
+            try { await fetch('/api/cache/clear', { method: 'POST' }); await this.fetchFolders(); alert("Libraries updated."); }
             catch (e) { console.error(e); alert("Error."); } finally { this.isRefreshing = false; }
         },
         toggleVisibleFolders() {
-            if (this.areAllVisibleSelected) { this.selectedFolders = this.selectedFolders.filter(f => !this.filteredFolders.includes(f)); } 
+            if (this.areAllVisibleSelected) { this.selectedFolders = this.selectedFolders.filter(f => !this.filteredFolders.includes(f)); }
             else { const newSelection = new Set([...this.selectedFolders, ...this.filteredFolders]); this.selectedFolders = Array.from(newSelection); }
         },
         selectOnly(folder) { this.selectedFolders = [folder]; },
-        async fetchFavorites() { try { const res = await fetch('/api/favorites'); this.favorites = await res.json(); } catch (e) {} },
+        async fetchFavorites() { try { const res = await fetch('/api/favorites'); this.favorites = await res.json(); } catch (e) { } },
         async toggleFavorite() {
             if (!this.currentImage) return;
             const path = this.currentImage.path;
@@ -100,7 +104,7 @@ createApp({
         startEditingIndex() {
             this.tempIndexValue = this.currentIndex + 1; // Copiamos el valor actual a la variable temporal
             this.isEditingIndex = true;
-            this.$nextTick(() => { if(this.$refs.indexInput) { this.$refs.indexInput.focus(); this.$refs.indexInput.select(); } });
+            this.$nextTick(() => { if (this.$refs.indexInput) { this.$refs.indexInput.focus(); this.$refs.indexInput.select(); } });
         },
         commitIndexChange() {
             this.isEditingIndex = false;
@@ -129,28 +133,181 @@ createApp({
         saveAndStart() { this.showSettings = false; this.loadRandomImage(); },
         handleWheel(e) {
             e.preventDefault();
-            if (e.ctrlKey || e.metaKey) { const zoomFactor = 1 - (e.deltaY * 0.01); this.applyZoom(zoomFactor); return; }
+            // Zoom (Ctrl + Wheel or Trackpad Pinch)
+            if (e.ctrlKey || e.metaKey) {
+                const zoomFactor = 1 - (e.deltaY * 0.01);
+
+                // Calculate new scale
+                let newScale = this.scale * zoomFactor;
+                newScale = Math.min(Math.max(0.1, newScale), 10);
+                const scaleRatio = newScale / this.scale;
+
+                // Get mouse position relative to screen center
+                const rect = this.$refs.viewer.getBoundingClientRect();
+                const screenCenter = {
+                    x: rect.left + rect.width / 2,
+                    y: rect.top + rect.height / 2
+                };
+                const mouseX = e.clientX - screenCenter.x;
+                const mouseY = e.clientY - screenCenter.y;
+
+                // Apply zoom towards mouse position
+                // Formula: P_new = M - (M - P_old) * ratio
+                this.posX = mouseX - (mouseX - this.posX) * scaleRatio;
+                this.posY = mouseY - (mouseY - this.posY) * scaleRatio;
+                this.scale = newScale;
+                return;
+            }
+
+            // Pan or Regular Scroll Zoom
             const isTrackpad = Math.abs(e.deltaY) < 40 && e.deltaMode === 0;
             const hasHorizontal = Math.abs(e.deltaX) > 0;
-            if (hasHorizontal || isTrackpad) { this.posX -= e.deltaX; this.posY -= e.deltaY; } 
-            else { const direction = e.deltaY > 0 ? 0.9 : 1.1; this.applyZoom(direction); }
+
+            if (hasHorizontal || isTrackpad) {
+                this.posX -= e.deltaX;
+                this.posY -= e.deltaY;
+            } else {
+                // Regular mouse wheel zoom (also towards cursor)
+                const direction = e.deltaY > 0 ? 0.9 : 1.1;
+
+                let newScale = this.scale * direction;
+                newScale = Math.min(Math.max(0.1, newScale), 10);
+                const scaleRatio = newScale / this.scale;
+
+                const rect = this.$refs.viewer.getBoundingClientRect();
+                const screenCenter = {
+                    x: rect.left + rect.width / 2,
+                    y: rect.top + rect.height / 2
+                };
+                const mouseX = e.clientX - screenCenter.x;
+                const mouseY = e.clientY - screenCenter.y;
+
+                this.posX = mouseX - (mouseX - this.posX) * scaleRatio;
+                this.posY = mouseY - (mouseY - this.posY) * scaleRatio;
+                this.scale = newScale;
+            }
         },
         applyZoom(factor) { let newScale = this.scale * factor; this.scale = Math.min(Math.max(0.1, newScale), 10); },
-        handleGestureStart(e) { e.preventDefault(); this.startScale = this.scale; },
-        handleGestureChange(e) { e.preventDefault(); this.scale = Math.min(Math.max(0.1, this.startScale * e.scale), 10); },
-        handleGestureEnd(e) { e.preventDefault(); },
-        startDrag(e) { if (e.button !== 0) return; this.isDragging = true; this.dragStartX = e.clientX - this.posX; this.dragStartY = e.clientY - this.posY; },
-        onDrag(e) { if (!this.isDragging) return; e.preventDefault(); this.posX = e.clientX - this.dragStartX; this.posY = e.clientY - this.dragStartY; },
-        stopDrag() { this.isDragging = false; },
-        resetTransform() { this.scale = 1; this.rotation = 0; this.flipH = false; this.posX = 0; this.posY = 0; },
+        // Touch handling
+        handleTouchStart(e) {
+            if (e.touches.length === 1) {
+                this.isDragging = true;
+                this.dragStartX = e.touches[0].clientX - this.posX;
+                this.dragStartY = e.touches[0].clientY - this.posY;
+                this.hasMoved = false;
+            } else if (e.touches.length === 2) {
+                this.isDragging = false;
+                const dist = Math.hypot(
+                    e.touches[0].clientX - e.touches[1].clientX,
+                    e.touches[0].clientY - e.touches[1].clientY
+                );
+                this.startScale = this.scale;
+                this.lastTouchDist = dist;
+
+                // Calculate center point for zoom
+                this.pinchCenter = {
+                    x: (e.touches[0].clientX + e.touches[1].clientX) / 2,
+                    y: (e.touches[0].clientY + e.touches[1].clientY) / 2
+                };
+                // Store initial pos to calculate offset during zoom
+                this.startPos = { x: this.posX, y: this.posY };
+            }
+        },
+        handleTouchMove(e) {
+            e.preventDefault(); // Prevent scrolling
+            if (e.touches.length === 1 && this.isDragging) {
+                const newX = e.touches[0].clientX - this.dragStartX;
+                const newY = e.touches[0].clientY - this.dragStartY;
+                if (Math.abs(newX - this.posX) > 2 || Math.abs(newY - this.posY) > 2) {
+                    this.hasMoved = true;
+                }
+                this.posX = newX;
+                this.posY = newY;
+            } else if (e.touches.length === 2) {
+                const dist = Math.hypot(
+                    e.touches[0].clientX - e.touches[1].clientX,
+                    e.touches[0].clientY - e.touches[1].clientY
+                );
+
+                if (this.lastTouchDist > 0) {
+                    const newScale = this.startScale * (dist / this.lastTouchDist);
+                    const clampedScale = Math.min(Math.max(0.1, newScale), 10);
+
+                    // Calculate current center of the pinch
+                    const currentCenter = {
+                        x: (e.touches[0].clientX + e.touches[1].clientX) / 2,
+                        y: (e.touches[0].clientY + e.touches[1].clientY) / 2
+                    };
+
+                    // Get screen center (transform origin is center center)
+                    const rect = this.$refs.viewer.getBoundingClientRect();
+                    const screenCenter = {
+                        x: rect.left + rect.width / 2,
+                        y: rect.top + rect.height / 2
+                    };
+
+                    // Calculate new position to keep the point under the pinch center stable
+                    // Formula: T_current = (P_current - C_screen) - (P_start - C_screen - T_start) * Ratio
+                    const scaleRatio = clampedScale / this.startScale;
+
+                    this.posX = (currentCenter.x - screenCenter.x) - (this.pinchCenter.x - screenCenter.x - this.startPos.x) * scaleRatio;
+                    this.posY = (currentCenter.y - screenCenter.y) - (this.pinchCenter.y - screenCenter.y - this.startPos.y) * scaleRatio;
+                    this.scale = clampedScale;
+                }
+            }
+        },
+        handleTouchEnd(e) {
+            this.isDragging = false;
+            if (e.touches.length < 2) {
+                this.lastTouchDist = 0;
+            }
+            // Tap detection for UI toggle
+            if (!this.hasMoved) {
+                this.toggleUI();
+                if (e.cancelable) e.preventDefault();
+            }
+            this.hasMoved = false;
+        },
+        startDrag(e) {
+            if (e.button !== 0) return;
+            this.isDragging = true;
+            this.dragStartX = e.clientX - this.posX;
+            this.dragStartY = e.clientY - this.posY;
+            this.hasMoved = false;
+        },
+        onDrag(e) {
+            if (!this.isDragging) return;
+            e.preventDefault();
+            const newX = e.clientX - this.dragStartX;
+            const newY = e.clientY - this.dragStartY;
+
+            // Check if actually moved (to distinguish click from drag)
+            if (Math.abs(newX - this.posX) > 2 || Math.abs(newY - this.posY) > 2) {
+                this.hasMoved = true;
+            }
+
+            this.posX = newX;
+            this.posY = newY;
+        },
+        stopDrag() {
+            if (this.isDragging && !this.hasMoved) {
+                this.toggleUI();
+            }
+            this.isDragging = false;
+            this.hasMoved = false;
+        },
+        toggleUI() {
+            this.uiVisible = !this.uiVisible;
+        },
+        resetTransform() { this.scale = 0.9; this.rotation = 0; this.flipH = false; this.posX = 0; this.posY = 0; },
         rotateRight() { this.rotation += 90; },
         startTimer() { this.timerInterval = setInterval(() => { if (!this.isPaused && this.currentImage && !this.showSettings && !this.showFavorites && !this.isLoading) this.timer++; }, 1000); },
         resetTimer() { this.timer = 0; this.isPaused = false; }, togglePlay() { this.isPaused = !this.isPaused; },
-        formatTime(s) { return `${Math.floor(s/60).toString().padStart(2,'0')}:${(s%60).toString().padStart(2,'0')}`; },
+        formatTime(s) { return `${Math.floor(s / 60).toString().padStart(2, '0')}:${(s % 60).toString().padStart(2, '0')}`; },
         handleKeydown(e) {
             if ((this.showSettings || this.showFavorites || this.isEditingIndex) && e.key !== 'Escape' && e.key !== 'Enter') return;
             if (e.key === ' ' && e.target.tagName !== 'INPUT') e.preventDefault();
-            switch(e.key) {
+            switch (e.key) {
                 case ' ': this.loadRandomImage(); break;
                 case 'ArrowRight': this.navSibling(1); break;
                 case 'ArrowLeft': this.navSibling(-1); break;

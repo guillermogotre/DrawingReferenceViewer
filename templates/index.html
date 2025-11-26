@@ -1,112 +1,263 @@
 <!DOCTYPE html>
 <html lang="es">
+
 <head>
     <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <meta name="viewport"
+        content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
     <title>Drawing Reference Viewer</title>
     <link rel="icon" href="{{ url_for('static', filename='favicon.ico') }}">
+
+    <!-- Fonts -->
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+
+    <!-- Icons -->
+    <script src="https://unpkg.com/lucide@latest"></script>
+
     <script src="https://unpkg.com/vue@3/dist/vue.global.js"></script>
     <script src="https://cdn.tailwindcss.com"></script>
     <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}">
 </head>
-<body>
-{% raw %}
-<div id="app">
-    <div class="viewer-container" ref="viewer" @wheel="handleWheel" @gesturestart="handleGestureStart" @gesturechange="handleGestureChange" @gestureend="handleGestureEnd" @mousedown="startDrag" @mousemove="onDrag" @mouseup="stopDrag" @mouseleave="stopDrag" @dblclick="resetTransform">
-        <transition name="fade"><div v-if="isLoading" class="loader-overlay"><div class="spinner"></div></div></transition>
-        <div class="transform-layer" :style="layerStyle">
-            <img v-if="currentImage" :src="currentUrl" class="main-img" :class="{ 'grayscale': grayscaleMode, 'opacity-0': isLoading }" :style="imageStyle" @load="onImageLoaded" @error="onImageError">
-            <div v-else-if="!isLoading" class="text-gray-500 text-2xl text-center select-none"><p>Press <span class="text-blue-400 font-bold">SPACE</span> to start.</p></div>
-        </div>
-    </div>
-    <div class="overlay-ui flex flex-col justify-between p-4">
-        <div class="flex justify-between items-start">
-            <div class="ui-element flex gap-4 items-center">
-                <button @click="showSettings = !showSettings" class="ui-btn">⚙️ Config</button>
-                <button @click="showFavorites = !showFavorites" class="ui-btn text-yellow-400">★ Favorites ({{favorites.length}})</button>
-                <div class="text-xl font-mono font-bold text-white w-16 text-center cursor-default">{{ formatTime(timer) }}</div>
-            </div>
-            <div class="ui-element text-xs text-gray-300 flex flex-col items-end" v-if="currentImage">
-                <span class="opacity-50">{{ currentImage.folder_root }}</span>
-                <span class="font-bold text-white text-sm truncate max-w-md">{{ currentImage.filename }}</span>
-                <div class="text-blue-300 mt-1 text-[10px] flex items-center gap-1">
-                    <span v-if="!isEditingIndex" @click="startEditingIndex" class="cursor-pointer hover:text-white border-b border-transparent hover:border-blue-300 transition-colors font-bold" title="Click to jump to number">{{ currentIndex + 1 }}</span>
-                    <input v-else ref="indexInput" type="number" v-model="tempIndexValue" @blur="commitIndexChange" @keydown.enter="commitIndexChange" class="w-12 bg-gray-800 text-white border border-blue-500 rounded px-1 text-center no-spinners outline-none text-[10px]">
-                    <span>/ {{ siblings.length }} (Folder)</span>
-                </div>
-            </div>
-        </div>
-        <div class="flex justify-center mb-4">
-            <div class="ui-element flex gap-2 items-center shadow-xl">
-                <div class="flex gap-1 mr-2 border-r border-gray-600 pr-2">
-                    <button @click="goHistory(-1)" :disabled="historyIndex <= 0" title="Back" class="ui-btn text-xl text-yellow-400">↶</button>
-                    <button @click="goHistory(1)" :disabled="historyIndex >= history.length - 1" title="Forward" class="ui-btn text-xl text-yellow-400">↷</button>
-                </div>
-                <div class="flex gap-1 mr-4 border-r border-gray-600 pr-4">
-                    <button @click="navSibling(-1)" title="Previous" class="ui-btn text-xl">◀</button>
-                    <button @click="navSibling(1)" title="Next" class="ui-btn text-xl">▶</button>
-                </div>
-                <button @click="togglePlay" title="Pause" class="ui-btn text-xl min-w-[40px]">{{ isPaused ? '▶️' : '⏸' }}</button>
-                <button @click="loadRandomImage" title="Random (Space)" class="ui-btn btn-primary shadow-lg"><span>🎲 Random</span></button>
-                <div class="w-px h-6 bg-gray-600 mx-2"></div>
-                <button @click="toggleFavorite" title="Favorite (M)" class="ui-btn text-xl transition-colors" :class="isCurrentFavorite ? 'text-red-500' : 'text-gray-400'">{{ isCurrentFavorite ? '❤️' : '🤍' }}</button>
-                <div class="w-px h-6 bg-gray-600 mx-2"></div>
-                <button @click="flipH = !flipH" title="Flip (F)" class="ui-btn font-bold">↔</button>
-                <button @click="rotateRight" title="Rotate (R)" class="ui-btn font-bold">⟳</button>
-                <button @click="grayscaleMode = !grayscaleMode" title="B/W (G)" class="ui-btn font-bold" :class="grayscaleMode ? 'bg-white text-black hover:bg-gray-200' : ''">BW</button>
-            </div>
-        </div>
-    </div>
-    <transition name="fade">
-        <div v-if="showSettings" class="absolute inset-0 bg-black/80 z-50 flex items-center justify-center p-10 backdrop-blur-sm">
-            <div class="bg-gray-800 p-6 rounded-xl max-w-3xl w-full h-[80vh] flex flex-col shadow-2xl border border-gray-700">
-                <div class="flex justify-between items-center mb-4 border-b border-gray-700 pb-4 shrink-0">
-                    <h2 class="text-2xl font-bold text-white">Libraries</h2>
-                    <button @click="refreshLibrary" :disabled="isRefreshing" class="text-xs bg-gray-700 hover:bg-gray-600 text-gray-300 px-3 py-1 rounded flex items-center gap-2 transition-colors border border-gray-600">
-                        <span v-if="isRefreshing">⏳ Scanning...</span><span v-else>🔄 Refresh Changes</span>
-                    </button>
-                    <button @click="showSettings = false" class="text-gray-400 hover:text-white text-2xl ml-4">✕</button>
-                </div>
-                <div class="flex flex-col gap-3 mb-4 shrink-0">
-                    <input type="text" v-model="searchQuery" placeholder="🔍 Search folder..." class="w-full bg-gray-900 border border-gray-600 rounded p-2 text-white focus:border-blue-500 focus:outline-none">
-                    <div class="flex justify-between items-center">
-                        <span class="text-xs text-gray-400 uppercase font-bold">Showing {{ filteredFolders.length }} of {{ folders.length }}</span>
-                        <label class="flex items-center gap-2 cursor-pointer text-sm text-blue-300 hover:text-white select-none"><input type="checkbox" @change="toggleVisibleFolders" :checked="areAllVisibleSelected"> {{ areAllVisibleSelected ? 'Deselect Visible' : 'Select Visible' }}</label>
-                    </div>
-                </div>
-                <div class="flex-1 overflow-y-auto custom-scroll bg-gray-900/50 rounded border border-gray-700 p-2">
-                    <div v-if="filteredFolders.length === 0" class="text-center text-gray-500 py-8">No folders match your search.</div>
-                    <label v-for="folder in filteredFolders" :key="folder" @dblclick.prevent="selectOnly(folder)" title="Double click to select ONLY this folder" class="flex items-start gap-3 p-3 border-b border-gray-700/50 hover:bg-gray-700 cursor-pointer transition-colors last:border-0 select-none">
-                        <input type="checkbox" :value="folder" v-model="selectedFolders" class="mt-1 w-4 h-4 accent-blue-500 shrink-0"><span class="text-sm text-gray-200 break-words leading-snug">{{ folder }}</span>
-                    </label>
-                </div>
-                <div class="flex justify-end gap-4 pt-4 border-t border-gray-700 shrink-0 mt-4">
-                    <button @click="showSettings = false" class="text-gray-400 hover:text-white px-4 py-2">Cancel</button>
-                    <button @click="saveAndStart" class="bg-blue-600 hover:bg-blue-500 text-white px-8 py-2 rounded font-bold shadow-lg">Start</button>
-                </div>
-            </div>
-        </div>
-    </transition>
-    <transition name="fade">
-        <div v-if="showFavorites" class="absolute inset-0 bg-black/90 z-50 flex flex-col p-6 backdrop-blur-md">
-            <div class="flex justify-between items-center mb-6">
-                <h2 class="text-3xl font-bold text-yellow-400">❤️ Your Favorites</h2>
-                <button @click="showFavorites = false" class="text-white hover:text-red-400 text-4xl">✕</button>
-            </div>
-            <div class="flex-1 overflow-y-auto rounded-xl bg-gray-900/50 border border-gray-800 p-4">
-                <div v-if="favorites.length === 0" class="h-full flex flex-col items-center justify-center text-gray-500"><div class="text-6xl mb-4">💔</div><p class="text-xl">You don't have any favorites yet.</p></div>
-                <div v-else class="fav-grid">
-                    <div v-for="favPath in favorites" :key="favPath" class="fav-item group" @click="loadFavorite(favPath)">
-                        <img :src="`/media/${favPath}`" loading="lazy" alt="Reference">
-                        <div class="absolute inset-0 bg-black/50 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center"><span class="text-white font-bold">Open</span></div>
-                    </div>
-                </div>
-            </div>
-        </div>
-    </transition>
-</div>
-{% endraw %}
 
-<script src="{{ url_for('static', filename='js/app.js') }}"></script>
+<body>
+    {% raw %}
+    <div id="app">
+        <div class="viewer-container" ref="viewer" @wheel="handleWheel" @touchstart="handleTouchStart"
+            @touchmove="handleTouchMove" @touchend="handleTouchEnd" @mousedown="startDrag" @mousemove="onDrag"
+            @mouseup="stopDrag" @mouseleave="stopDrag" @dblclick="resetTransform">
+            <transition name="fade">
+                <div v-if="isLoading" class="loader-overlay">
+                    <div class="spinner"></div>
+                </div>
+            </transition>
+            <div class="transform-layer" :style="layerStyle">
+                <img v-if="currentImage" :src="currentUrl" class="main-img"
+                    :class="{ 'filter-bw': grayscaleMode, 'opacity-0': isLoading }" :style="imageStyle"
+                    @load="onImageLoaded" @error="onImageError">
+                <div v-else-if="!isLoading" class="text-gray-500 text-2xl text-center select-none">
+                    <p>Press <span class="text-blue-400 font-bold">SPACE</span> to start.</p>
+                </div>
+            </div>
+        </div>
+        <div class="overlay-ui flex flex-col justify-between p-2 md:p-4">
+            <div class="flex flex-col md:flex-row justify-between items-start gap-2 md:gap-0">
+                <div class="flex flex-wrap md:flex-nowrap items-center">
+                    <div class="transition-all duration-300 ease-in-out overflow-hidden"
+                        :class="uiVisible ? 'max-w-[300px] opacity-100 mr-2 md:mr-4' : 'max-w-0 opacity-0 mr-0'">
+                        <div class="ui-element flex gap-2 md:gap-4 items-center whitespace-nowrap">
+                            <button @click="showSettings = !showSettings" class="ui-btn text-sm md:text-base"
+                                title="Settings">
+                                <i data-lucide="settings" class="w-5 h-5"></i>
+                                <span class="hidden md:inline ml-2">Config</span>
+                            </button>
+                            <button @click="showFavorites = !showFavorites"
+                                class="ui-btn text-yellow-400 text-sm md:text-base" title="Favorites">
+                                <i data-lucide="star" class="w-5 h-5 fill-current"></i>
+                                <span class="hidden md:inline ml-2">Favorites</span>
+                                <span class="ml-1 text-xs opacity-70">({{favorites.length}})</span>
+                            </button>
+                        </div>
+                    </div>
+                    <div
+                        class="ui-element text-lg md:text-xl font-mono font-bold text-white min-w-[3.5rem] px-2 text-center cursor-default whitespace-nowrap">
+                        {{ formatTime(timer) }}</div>
+                </div>
+                <transition name="fade">
+                    <div v-show="uiVisible"
+                        class="ui-element text-xs text-gray-300 flex flex-col items-end w-full md:w-auto"
+                        v-if="currentImage">
+                        <span class="opacity-50 truncate max-w-[200px] md:max-w-none">{{ currentImage.folder_root
+                            }}</span>
+                        <span class="font-bold text-white text-sm truncate max-w-[250px] md:max-w-md">{{
+                            currentImage.filename }}</span>
+                        <div class="text-blue-300 mt-1 text-[10px] flex items-center gap-1">
+                            <span v-if="!isEditingIndex" @click="startEditingIndex"
+                                class="cursor-pointer hover:text-white border-b border-transparent hover:border-blue-300 transition-colors font-bold"
+                                title="Click to jump to number">{{ currentIndex + 1 }}</span>
+                            <input v-else ref="indexInput" type="number" v-model="tempIndexValue"
+                                @blur="commitIndexChange" @keydown.enter="commitIndexChange"
+                                class="w-12 bg-gray-800 text-white border border-blue-500 rounded px-1 text-center no-spinners outline-none text-[10px]">
+                            <span>/ {{ siblings.length }}</span>
+                        </div>
+                    </div>
+                </transition>
+            </div>
+            <transition name="fade">
+                <div v-show="uiVisible" class="flex justify-center mb-2 md:mb-4">
+                    <div
+                        class="ui-element flex flex-wrap md:flex-nowrap justify-center gap-2 items-center shadow-xl max-w-full">
+                        <div class="flex gap-1 mr-1 md:mr-2 border-r border-gray-700 pr-1 md:pr-2">
+                            <button @click="goHistory(-1)" :disabled="historyIndex <= 0" title="Back"
+                                class="ui-btn text-yellow-400">
+                                <i data-lucide="rotate-ccw" class="w-6 h-6"></i>
+                            </button>
+                            <button @click="goHistory(1)" :disabled="historyIndex >= history.length - 1" title="Forward"
+                                class="ui-btn text-yellow-400">
+                                <i data-lucide="rotate-cw" class="w-6 h-6"></i>
+                            </button>
+                        </div>
+                        <div class="flex gap-1 mr-2 md:mr-4 border-r border-gray-700 pr-2 md:pr-4">
+                            <button @click="navSibling(-1)" title="Previous" class="ui-btn">
+                                <i data-lucide="chevron-left" class="w-8 h-8"></i>
+                            </button>
+                            <button @click="navSibling(1)" title="Next" class="ui-btn">
+                                <i data-lucide="chevron-right" class="w-8 h-8"></i>
+                            </button>
+                        </div>
+                        <button @click="togglePlay" title="Pause/Play" class="ui-btn min-w-[40px]">
+                            <i :data-lucide="isPaused ? 'play' : 'pause'" class="w-6 h-6"></i>
+                        </button>
+                        <button @click="loadRandomImage" title="Random (Space)"
+                            class="ui-btn btn-primary shadow-lg text-sm md:text-base px-4">
+                            <i data-lucide="shuffle" class="w-5 h-5"></i>
+                            <span class="hidden sm:inline ml-2">Random</span>
+                        </button>
+                        <div class="w-px h-6 bg-gray-700 mx-1 md:mx-2 hidden sm:block"></div>
+                        <button @click="toggleFavorite" title="Favorite (M)" class="ui-btn transition-colors"
+                            :class="isCurrentFavorite ? 'text-red-500' : 'text-gray-400'">
+                            <i data-lucide="heart" class="w-6 h-6" :class="{'fill-current': isCurrentFavorite}"></i>
+                        </button>
+                        <div class="w-px h-6 bg-gray-700 mx-1 md:mx-2 hidden sm:block"></div>
+                        <div class="flex gap-1">
+                            <button @click="flipH = !flipH" title="Flip (F)" class="ui-btn">
+                                <i data-lucide="flip-horizontal" class="w-5 h-5"></i>
+                            </button>
+                            <button @click="rotateRight" title="Rotate (R)" class="ui-btn">
+                                <i data-lucide="rotate-cw" class="w-5 h-5"></i>
+                            </button>
+                            <button @click="grayscaleMode = !grayscaleMode" title="B/W (G)" class="ui-btn"
+                                :class="grayscaleMode ? 'btn-active' : ''">
+                                <span class="font-bold text-xs">BW</span>
+                            </button>
+                        </div>
+                    </div>
+                </div>
+            </transition>
+        </div>
+        <transition name="fade">
+            <div v-if="showSettings"
+                class="absolute inset-0 bg-black/80 z-50 flex items-center justify-center p-4 md:p-10 backdrop-blur-sm">
+                <div
+                    class="bg-[#1a1a1a] p-6 rounded-2xl max-w-3xl w-full h-[85vh] flex flex-col shadow-2xl border border-gray-800">
+                    <div class="flex justify-between items-center mb-6 border-b border-gray-800 pb-4 shrink-0">
+                        <h2 class="text-2xl font-bold text-white flex items-center gap-3">
+                            <i data-lucide="library" class="w-6 h-6 text-indigo-500"></i>
+                            Libraries
+                        </h2>
+                        <div class="flex gap-3">
+                            <button @click="refreshLibrary" :disabled="isRefreshing"
+                                class="text-xs bg-gray-800 hover:bg-gray-700 text-gray-300 px-3 py-2 rounded-lg flex items-center gap-2 transition-colors border border-gray-700">
+                                <i :data-lucide="isRefreshing ? 'loader-2' : 'refresh-cw'" class="w-4 h-4"
+                                    :class="{'animate-spin': isRefreshing}"></i>
+                                <span v-if="isRefreshing">Scanning...</span><span v-else>Refresh</span>
+                            </button>
+                            <button @click="showSettings = false"
+                                class="text-gray-400 hover:text-white p-1 rounded-full hover:bg-gray-800 transition-colors">
+                                <i data-lucide="x" class="w-6 h-6"></i>
+                            </button>
+                        </div>
+                    </div>
+                    <div class="flex flex-col gap-4 mb-4 shrink-0">
+                        <div class="relative">
+                            <i data-lucide="search"
+                                class="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-500"></i>
+                            <input type="text" v-model="searchQuery" placeholder="Search folders..."
+                                class="w-full bg-gray-900 border border-gray-700 rounded-xl py-2.5 pl-10 pr-4 text-white focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500 focus:outline-none transition-all">
+                        </div>
+                        <div class="flex justify-between items-center px-1">
+                            <span class="text-xs text-gray-500 font-medium uppercase tracking-wider">Showing {{
+                                filteredFolders.length }}
+                                of {{ folders.length }}</span>
+                            <label
+                                class="flex items-center gap-2 cursor-pointer text-sm text-indigo-400 hover:text-indigo-300 select-none transition-colors">
+                                <input type="checkbox" @change="toggleVisibleFolders" :checked="areAllVisibleSelected"
+                                    class="hidden">
+                                <span class="flex items-center gap-2">
+                                    <i :data-lucide="areAllVisibleSelected ? 'check-square' : 'square'"
+                                        class="w-4 h-4"></i>
+                                    {{ areAllVisibleSelected ? 'Deselect All' : 'Select All' }}
+                                </span>
+                            </label>
+                        </div>
+                    </div>
+                    <div
+                        class="flex-1 overflow-y-auto custom-scroll bg-gray-900/30 rounded-xl border border-gray-800/50 p-2">
+                        <div v-if="filteredFolders.length === 0"
+                            class="flex flex-col items-center justify-center h-40 text-gray-500 gap-2">
+                            <i data-lucide="folder-search" class="w-8 h-8 opacity-50"></i>
+                            <p>No folders match your search.</p>
+                        </div>
+                        <label v-for="folder in filteredFolders" :key="folder" @dblclick.prevent="selectOnly(folder)"
+                            title="Double click to select ONLY this folder"
+                            class="flex items-center gap-3 p-3 rounded-lg hover:bg-gray-800/50 cursor-pointer transition-colors select-none group">
+                            <div class="relative flex items-center justify-center w-5 h-5">
+                                <input type="checkbox" :value="folder" v-model="selectedFolders"
+                                    class="peer appearance-none w-5 h-5 border-2 border-gray-600 rounded checked:bg-indigo-500 checked:border-indigo-500 transition-colors">
+                                <i data-lucide="check"
+                                    class="absolute w-3.5 h-3.5 text-white opacity-0 peer-checked:opacity-100 pointer-events-none transition-opacity"></i>
+                            </div>
+                            <i data-lucide="folder"
+                                class="w-4 h-4 text-gray-500 group-hover:text-indigo-400 transition-colors"></i>
+                            <span class="text-sm text-gray-300 group-hover:text-white transition-colors break-all">{{
+                                folder }}</span>
+                        </label>
+                    </div>
+                    <div class="flex justify-end gap-3 pt-6 border-t border-gray-800 shrink-0 mt-2">
+                        <button @click="showSettings = false"
+                            class="text-gray-400 hover:text-white px-6 py-2.5 rounded-xl hover:bg-gray-800 transition-colors font-medium">Cancel</button>
+                        <button @click="saveAndStart"
+                            class="bg-indigo-600 hover:bg-indigo-500 text-white px-8 py-2.5 rounded-xl font-bold shadow-lg shadow-indigo-500/20 transition-all hover:shadow-indigo-500/30 flex items-center gap-2">
+                            <i data-lucide="play" class="w-4 h-4 fill-current"></i>
+                            Start Session
+                        </button>
+                    </div>
+                </div>
+            </div>
+        </transition>
+        <transition name="fade">
+            <div v-if="showFavorites" class="absolute inset-0 bg-black/90 z-50 flex flex-col p-6 backdrop-blur-md">
+                <div class="flex justify-between items-center mb-6 max-w-7xl mx-auto w-full">
+                    <h2 class="text-3xl font-bold text-white flex items-center gap-3">
+                        <i data-lucide="heart" class="w-8 h-8 text-red-500 fill-current"></i>
+                        Your Favorites
+                    </h2>
+                    <button @click="showFavorites = false"
+                        class="text-gray-400 hover:text-white p-2 rounded-full hover:bg-gray-800 transition-colors">
+                        <i data-lucide="x" class="w-8 h-8"></i>
+                    </button>
+                </div>
+                <div
+                    class="flex-1 overflow-y-auto rounded-2xl bg-gray-900/30 border border-gray-800 p-6 max-w-7xl mx-auto w-full">
+                    <div v-if="favorites.length === 0"
+                        class="h-full flex flex-col items-center justify-center text-gray-500 gap-4">
+                        <i data-lucide="heart-off" class="w-24 h-24 opacity-20"></i>
+                        <p class="text-xl font-medium">You don't have any favorites yet.</p>
+                        <p class="text-sm opacity-60">Press 'M' or click the heart icon to add images here.</p>
+                    </div>
+                    <div v-else class="fav-grid">
+                        <div v-for="favPath in favorites" :key="favPath"
+                            class="fav-item group rounded-xl overflow-hidden shadow-lg border border-gray-800"
+                            @click="loadFavorite(favPath)">
+                            <img :src="`/media/${favPath}`" loading="lazy" alt="Reference"
+                                class="w-full h-full object-cover transition-transform duration-500 group-hover:scale-110">
+                            <div
+                                class="absolute inset-0 bg-black/40 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center backdrop-blur-[2px]">
+                                <span
+                                    class="text-white font-bold bg-black/50 px-4 py-2 rounded-lg flex items-center gap-2">
+                                    <i data-lucide="external-link" class="w-4 h-4"></i> Open
+                                </span>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </transition>
+    </div>
+    {% endraw %}
+
+    <script src="{{ url_for('static', filename='js/app.js') }}"></script>
 </body>
+
 </html>
