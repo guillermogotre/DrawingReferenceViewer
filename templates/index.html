@@ -24,6 +24,21 @@
 <body>
     {% raw %}
     <div id="app">
+        <!-- SVG Filters -->
+        <svg style="position: absolute; width: 0; height: 0; overflow: hidden;" aria-hidden="true">
+            <defs>
+                <filter id="posterizeFilter">
+                    <feColorMatrix type="matrix"
+                        values="0.33 0.33 0.33 0 0  0.33 0.33 0.33 0 0  0.33 0.33 0.33 0 0  0 0 0 1 0" result="gray" />
+                    <feComponentTransfer in="gray">
+                        <feFuncR type="table" v-bind="{ tableValues: posterizeTableValues }" />
+                        <feFuncG type="table" v-bind="{ tableValues: posterizeTableValues }" />
+                        <feFuncB type="table" v-bind="{ tableValues: posterizeTableValues }" />
+                    </feComponentTransfer>
+                </filter>
+            </defs>
+        </svg>
+
         <div class="viewer-container" ref="viewer" @wheel="handleWheel" @touchstart="handleTouchStart"
             @touchmove="handleTouchMove" @touchend="handleTouchEnd" @mousedown="startDrag" @mousemove="onDrag"
             @mouseup="stopDrag" @mouseleave="stopDrag" @dblclick="resetTransform">
@@ -34,8 +49,8 @@
             </transition>
             <div class="transform-layer" :style="layerStyle">
                 <img v-if="currentImage" :src="currentUrl" class="main-img"
-                    :class="{ 'filter-bw': grayscaleMode, 'opacity-0': isLoading }" :style="imageStyle"
-                    @load="onImageLoaded" @error="onImageError">
+                    :class="{ 'filter-bw': grayscaleMode, 'filter-posterize': posterizeMode, 'opacity-0': isLoading }"
+                    :style="imageStyle" @load="onImageLoaded" @error="onImageError">
                 <div v-else-if="!isLoading" class="text-gray-500 text-2xl text-center select-none">
                     <p>Press <span class="text-blue-400 font-bold">SPACE</span> to start.</p>
                 </div>
@@ -127,8 +142,12 @@
                             <button @click="rotateRight" title="Rotate (R)" class="ui-btn">
                                 <i data-lucide="rotate-cw" class="w-5 h-5"></i>
                             </button>
-                            <button @click="grayscaleMode = !grayscaleMode" title="B/W (G)" class="ui-btn"
-                                :class="grayscaleMode ? 'btn-active' : ''">
+                            <button @click="togglePosterize" title="Posterize (P)" class="ui-btn"
+                                :class="posterizeMode ? 'btn-active' : ''">
+                                <i data-lucide="layers" class="w-5 h-5"></i>
+                            </button>
+                            <button @click="grayscaleMode = !grayscaleMode; if(grayscaleMode) posterizeMode = false;"
+                                title="B/W (G)" class="ui-btn" :class="grayscaleMode ? 'btn-active' : ''">
                                 <span class="font-bold text-xs">BW</span>
                             </button>
                         </div>
@@ -250,6 +269,47 @@
                                 </span>
                             </div>
                         </div>
+                    </div>
+                </div>
+            </div>
+        </transition>
+        <transition name="fade">
+            <div v-if="posterizeMode" class="absolute bottom-20 left-1/2 -translate-x-1/2 z-40 w-full max-w-md px-4">
+                <div class="ui-element flex flex-col gap-3 shadow-2xl border border-gray-700/50">
+                    <div class="flex justify-between items-center">
+                        <span class="text-xs font-bold text-gray-400 uppercase tracking-wider">Posterization
+                            Levels</span>
+                        <button @click="posterizeMode = false" class="text-gray-400 hover:text-white"><i data-lucide="x"
+                                class="w-4 h-4"></i></button>
+                    </div>
+
+                    <!-- Custom Slider -->
+                    <div class="relative h-12 select-none touch-none" ref="sliderTrack" @mousedown="addThreshold"
+                        @touchstart="addThreshold">
+                        <!-- Track Gradient -->
+                        <div class="absolute inset-x-0 top-1/2 -translate-y-1/2 h-4 rounded-full border border-gray-600 overflow-hidden"
+                            :style="{ background: sliderGradient }"></div>
+
+                        <!-- Handles -->
+                        <div v-for="(stop, index) in posterizeStops" :key="index"
+                            class="absolute top-1/2 -translate-y-1/2 w-8 h-10 -ml-4 cursor-grab active:cursor-grabbing group z-10 flex items-center justify-center touch-none"
+                            :style="{ left: (stop.pos * 100) + '%' }" @mousedown.stop="startDragStop($event, index)"
+                            @touchstart.stop.prevent="handleStopTouchStart($event, index)"
+                            @dblclick.stop="removeStop(index)">
+                            <div
+                                class="w-4 h-4 bg-white shadow-[0_0_5px_rgba(0,0,0,0.5)] rounded-full group-hover:bg-indigo-400 transition-colors border-2 border-gray-400">
+                            </div>
+                            <div
+                                class="absolute -top-8 left-1/2 -translate-x-1/2 text-[10px] bg-black/80 text-white px-2 py-1 rounded opacity-0 group-hover:opacity-100 transition-opacity whitespace-nowrap pointer-events-none">
+                                {{ Math.round(stop.pos * 100) }}%
+                            </div>
+                        </div>
+                    </div>
+
+                    <div class="flex justify-between text-[10px] text-gray-500 font-mono">
+                        <span>BLACK</span>
+                        <span class="text-gray-400">Double-click handle to remove</span>
+                        <span>WHITE</span>
                     </div>
                 </div>
             </div>

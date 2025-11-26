@@ -73,6 +73,10 @@ img.main-img {
     filter: drop-shadow(0 10px 30px rgba(0, 0, 0, 0.5)) grayscale(100%) !important;
 }
 
+.filter-posterize {
+    filter: drop-shadow(0 10px 30px rgba(0, 0, 0, 0.5)) url(#posterizeFilter) !important;
+}
+
 .overlay-ui {
     position: absolute;
     z-index: 20;

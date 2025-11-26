@@ -11,10 +11,15 @@ createApp({
             isEditingIndex: false,
             tempIndexValue: 1, // Buffer for smooth editing
 
-            timer: 0, isPaused: false, timerInterval: null, grayscaleMode: false,
+            timer: 0, isPaused: false, timerInterval: null, grayscaleMode: false, posterizeMode: false,
             scale: 0.9, startScale: 0.9, rotation: 0, flipH: false, posX: 0, posY: 0,
             isDragging: false, dragStartX: 0, dragStartY: 0, lastTouchDist: 0,
             uiVisible: true, hasMoved: false,
+            posterizeStops: [
+                { pos: 0.5 }
+            ],
+            dragStopIndex: -1,
+            lastStopTap: 0, // For double tap detection
         }
     },
     computed: {
@@ -30,12 +35,78 @@ createApp({
         areAllVisibleSelected() {
             if (this.filteredFolders.length === 0) return false;
             return this.filteredFolders.every(f => this.selectedFolders.includes(f));
+        },
+        sliderGradient() {
+            let stops = [...this.posterizeStops].sort((a, b) => a.pos - b.pos);
+            let gradient = 'linear-gradient(to right';
+
+            // Number of regions = stops.length + 1
+            // Values are equidistant: 0, 1/N, 2/N, ..., 1
+            const numRegions = stops.length + 1;
+
+            // Region 0 (Start to first stop)
+            let val = 0; // Black
+            let color = `rgb(${val * 255},${val * 255},${val * 255})`;
+            gradient += `, ${color} 0%`;
+
+            stops.forEach((stop, index) => {
+                // End of previous region / Start of current region at stop.pos
+                gradient += `, ${color} ${stop.pos * 100}%`;
+
+                // New color for next region
+                val = (index + 1) / (numRegions - 1);
+                color = `rgb(${val * 255},${val * 255},${val * 255})`;
+
+                gradient += `, ${color} ${stop.pos * 100}%`;
+            });
+
+            // End of last region
+            gradient += `, ${color} 100%)`;
+            return gradient;
+        },
+        posterizeTableValues() {
+            // Generate 256 values for the SVG table
+            let values = [];
+            let stops = [...this.posterizeStops].sort((a, b) => a.pos - b.pos);
+
+            const numRegions = stops.length + 1;
+
+            // We need to map input 0..1 to output values based on thresholds
+            // Iterate through all 256 input levels
+            let stopIdx = 0;
+
+            for (let i = 0; i < 256; i++) {
+                let pos = i / 255;
+
+                // Advance to next threshold if we passed current one
+                while (stopIdx < stops.length && pos >= stops[stopIdx].pos) {
+                    stopIdx++;
+                }
+
+                // stopIdx is now the index of the region we are in (0 to stops.length)
+                // Value for this region is stopIdx / (numRegions - 1)
+                let val = stopIdx / (numRegions - 1);
+                values.push(val);
+            }
+            return values.join(' ');
         }
     },
     mounted() {
-        this.fetchFolders(); this.fetchFavorites();
-        window.addEventListener('keydown', this.handleKeydown);
+        this.fetchFolders();
+        window.addEventListener('keydown', this.handleKey);
+        window.addEventListener('mousemove', this.dragStop);
+        window.addEventListener('mouseup', this.stopDragStop);
+        window.addEventListener('touchmove', this.dragStop);
+        window.addEventListener('touchend', this.stopDragStop);
         this.startTimer();
+    },
+    beforeUnmount() {
+        window.removeEventListener('keydown', this.handleKey);
+        window.removeEventListener('mousemove', this.dragStop);
+        window.removeEventListener('mouseup', this.stopDragStop);
+        window.removeEventListener('touchmove', this.dragStop);
+        window.removeEventListener('touchend', this.stopDragStop);
+        clearInterval(this.timerInterval);
     },
     updated() {
         lucide.createIcons();
@@ -299,26 +370,84 @@ createApp({
         toggleUI() {
             this.uiVisible = !this.uiVisible;
         },
+        togglePosterize() {
+            this.posterizeMode = !this.posterizeMode;
+            if (this.posterizeMode) {
+                this.grayscaleMode = false;
+                // Initialize default stops if empty
+                if (this.posterizeStops.length === 0) {
+                    this.posterizeStops = [
+                        { pos: 0.5 } // Single threshold = 2 values (Black/White)
+                    ];
+                }
+            }
+        },
+        addThreshold(e) {
+            if (this.$refs.sliderTrack && (e.target === this.$refs.sliderTrack || e.target.parentElement === this.$refs.sliderTrack)) {
+                const rect = this.$refs.sliderTrack.getBoundingClientRect();
+                const clientX = e.touches ? e.touches[0].clientX : e.clientX;
+                const pos = Math.max(0, Math.min(1, (clientX - rect.left) / rect.width));
+
+                this.posterizeStops.push({ pos });
+                this.dragStopIndex = this.posterizeStops.length - 1;
+            }
+        },
+        removeStop(index) {
+            if (this.posterizeStops.length > 1) {
+                this.posterizeStops.splice(index, 1);
+            }
+        },
+        startDragStop(e, index) {
+            this.dragStopIndex = index;
+        },
+        handleStopTouchStart(e, index) {
+            e.stopPropagation(); // Prevent adding new threshold
+            const now = Date.now();
+            if (now - this.lastStopTap < 300) {
+                // Double tap detected
+                this.removeStop(index);
+                this.lastStopTap = 0;
+            } else {
+                this.lastStopTap = now;
+                this.dragStopIndex = index;
+            }
+        },
+        dragStop(e) {
+            if (this.dragStopIndex === -1) return;
+
+            // Prevent default to stop scrolling while dragging slider
+            if (e.cancelable) e.preventDefault();
+
+            const rect = this.$refs.sliderTrack.getBoundingClientRect();
+            const clientX = e.touches ? e.touches[0].clientX : e.clientX;
+            let pos = (clientX - rect.left) / rect.width;
+            pos = Math.max(0, Math.min(1, pos));
+
+            this.posterizeStops[this.dragStopIndex].pos = pos;
+        },
+        stopDragStop() {
+            this.dragStopIndex = -1;
+        },
         resetTransform() { this.scale = 0.9; this.rotation = 0; this.flipH = false; this.posX = 0; this.posY = 0; },
         rotateRight() { this.rotation += 90; },
         startTimer() { this.timerInterval = setInterval(() => { if (!this.isPaused && this.currentImage && !this.showSettings && !this.showFavorites && !this.isLoading) this.timer++; }, 1000); },
         resetTimer() { this.timer = 0; this.isPaused = false; }, togglePlay() { this.isPaused = !this.isPaused; },
         formatTime(s) { return `${Math.floor(s / 60).toString().padStart(2, '0')}:${(s % 60).toString().padStart(2, '0')}`; },
-        handleKeydown(e) {
+        handleKey(e) {
             if ((this.showSettings || this.showFavorites || this.isEditingIndex) && e.key !== 'Escape' && e.key !== 'Enter') return;
             if (e.key === ' ' && e.target.tagName !== 'INPUT') e.preventDefault();
-            switch (e.key) {
-                case ' ': this.loadRandomImage(); break;
-                case 'ArrowRight': this.navSibling(1); break;
-                case 'ArrowLeft': this.navSibling(-1); break;
-                case 'ArrowDown': e.preventDefault(); this.goHistory(-1); break;
-                case 'ArrowUp': e.preventDefault(); this.goHistory(1); break;
-                case 'f': this.flipH = !this.flipH; break;
-                case 'r': this.rotateRight(); break;
-                case 'g': this.grayscaleMode = !this.grayscaleMode; break;
-                case 'm': this.toggleFavorite(); break;
-                case 'Escape': this.showSettings = false; this.showFavorites = false; this.isEditingIndex = false; break;
-            }
+
+            if (e.key === ' ') this.loadRandomImage();
+            else if (e.key === 'ArrowRight') this.navSibling(1);
+            else if (e.key === 'ArrowLeft') this.navSibling(-1);
+            else if (e.key === 'ArrowDown') { e.preventDefault(); this.goHistory(-1); }
+            else if (e.key === 'ArrowUp') { e.preventDefault(); this.goHistory(1); }
+            else if (e.key.toLowerCase() === 'f') this.flipH = !this.flipH;
+            else if (e.key.toLowerCase() === 'r') this.rotateRight();
+            else if (e.key.toLowerCase() === 'g') { this.grayscaleMode = !this.grayscaleMode; if (this.grayscaleMode) this.posterizeMode = false; }
+            else if (e.key.toLowerCase() === 'p') this.togglePosterize();
+            else if (e.key.toLowerCase() === 'm') this.toggleFavorite();
+            else if (e.key === 'Escape') { this.showSettings = false; this.showFavorites = false; this.isEditingIndex = false; }
         }
     }
 }).mount('#app');
