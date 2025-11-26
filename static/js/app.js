@@ -11,7 +11,7 @@ createApp({
             isEditingIndex: false,
             tempIndexValue: 1, // Buffer for smooth editing
 
-            timer: 0, isPaused: false, timerInterval: null, grayscaleMode: false, posterizeMode: false,
+            timer: 0, isPaused: false, timerInterval: null, grayscaleMode: false, posterizeMode: false, showPosterizeUI: false,
             scale: 0.9, startScale: 0.9, rotation: 0, flipH: false, posX: 0, posY: 0,
             isDragging: false, dragStartX: 0, dragStartY: 0, lastTouchDist: 0,
             uiVisible: true, hasMoved: false,
@@ -371,14 +371,26 @@ createApp({
             this.uiVisible = !this.uiVisible;
         },
         togglePosterize() {
-            this.posterizeMode = !this.posterizeMode;
-            if (this.posterizeMode) {
+            if (!this.posterizeMode) {
+                // Enable
+                this.posterizeMode = true;
+                this.showPosterizeUI = true;
                 this.grayscaleMode = false;
                 // Initialize default stops if empty
                 if (this.posterizeStops.length === 0) {
                     this.posterizeStops = [
                         { pos: 0.5 } // Single threshold = 2 values (Black/White)
                     ];
+                }
+            } else {
+                // Already enabled
+                if (!this.showPosterizeUI) {
+                    // UI hidden, just show it
+                    this.showPosterizeUI = true;
+                } else {
+                    // UI visible, disable everything
+                    this.posterizeMode = false;
+                    this.showPosterizeUI = false;
                 }
             }
         },

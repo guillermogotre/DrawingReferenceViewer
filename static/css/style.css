@@ -57,7 +57,7 @@ body {
     justify-content: center;
     align-items: center;
     transform-origin: center center;
-    will-change: transform;
+    transform-origin: center center;
 }
 
 img.main-img {

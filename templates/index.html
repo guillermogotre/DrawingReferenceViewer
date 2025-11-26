@@ -146,7 +146,8 @@
                                 :class="posterizeMode ? 'btn-active' : ''">
                                 <i data-lucide="layers" class="w-5 h-5"></i>
                             </button>
-                            <button @click="grayscaleMode = !grayscaleMode; if(grayscaleMode) posterizeMode = false;"
+                            <button
+                                @click="grayscaleMode = !grayscaleMode; if(grayscaleMode) { posterizeMode = false; showPosterizeUI = false; }"
                                 title="B/W (G)" class="ui-btn" :class="grayscaleMode ? 'btn-active' : ''">
                                 <span class="font-bold text-xs">BW</span>
                             </button>
@@ -274,13 +275,14 @@
             </div>
         </transition>
         <transition name="fade">
-            <div v-if="posterizeMode" class="absolute bottom-20 left-1/2 -translate-x-1/2 z-40 w-full max-w-md px-4">
+            <div v-if="posterizeMode && showPosterizeUI"
+                class="absolute bottom-20 left-1/2 -translate-x-1/2 z-40 w-full max-w-md px-4">
                 <div class="ui-element flex flex-col gap-3 shadow-2xl border border-gray-700/50">
                     <div class="flex justify-between items-center">
                         <span class="text-xs font-bold text-gray-400 uppercase tracking-wider">Posterization
                             Levels</span>
-                        <button @click="posterizeMode = false" class="text-gray-400 hover:text-white"><i data-lucide="x"
-                                class="w-4 h-4"></i></button>
+                        <button @click="showPosterizeUI = false" class="text-gray-400 hover:text-white"><i
+                                data-lucide="x" class="w-4 h-4"></i></button>
                     </div>
 
                     <!-- Custom Slider -->
