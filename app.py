@@ -226,6 +226,83 @@ def handle_favorites():
         favs = load_favorites()
         return jsonify(favs)
 
+# --- UPLOAD HANDLING ---
+
+from werkzeug.utils import secure_filename
+
+@app.route('/api/upload', methods=['POST'])
+def upload_files():
+    """
+    API Endpoint: Handles file uploads.
+    Accepts 'target_folder' and a list of files.
+    Preserves relative paths for folder uploads.
+    """
+    target_folder = request.form.get('target_folder', '')
+    
+    # Sanitize target folder to prevent directory traversal
+    # We allow subdirectories in target_folder, but we need to be careful
+    # secure_filename only returns the basename, so we need to split and sanitize
+    if target_folder:
+        parts = [secure_filename(p) for p in target_folder.split('/')]
+        target_folder = os.path.join(*parts)
+    
+    upload_base = os.path.join(BASE_DIR, target_folder)
+    
+    if not os.path.exists(upload_base):
+        try:
+            os.makedirs(upload_base)
+        except OSError as e:
+            return jsonify({"error": f"Could not create target directory: {e}"}), 500
+
+    uploaded_files = request.files.getlist('files')
+    
+    if not uploaded_files:
+        return jsonify({"error": "No files provided"}), 400
+
+    saved_files = []
+    errors = []
+
+    for file in uploaded_files:
+        if file.filename == '':
+            continue
+            
+        # The filename here might contain the relative path from the client
+        # e.g., "MyFolder/Sub/image.png"
+        # We need to preserve this structure relative to upload_base
+        
+        # NOTE: Flask/Werkzeug might flatten filename, so we rely on the client 
+        # sending the relative path, or we trust the filename if it contains slashes.
+        # However, standard multipart/form-data usually just sends the basename.
+        # To support folder structure, the frontend should append the relative path 
+        # to the filename or send it as a separate field.
+        # A common trick is `formData.append('files', file, file.webkitRelativePath)`
+        
+        filename = file.filename
+        
+        # Sanitize the path components
+        path_parts = filename.split('/')
+        safe_parts = [secure_filename(p) for p in path_parts]
+        safe_filename = os.path.join(*safe_parts)
+        
+        destination = os.path.join(upload_base, safe_filename)
+        
+        # Ensure destination directory exists
+        dest_dir = os.path.dirname(destination)
+        if not os.path.exists(dest_dir):
+            os.makedirs(dest_dir, exist_ok=True)
+            
+        try:
+            file.save(destination)
+            saved_files.append(safe_filename)
+        except Exception as e:
+            errors.append(f"Failed to save {filename}: {e}")
+
+    return jsonify({
+        "message": f"Successfully uploaded {len(saved_files)} files.",
+        "saved": saved_files,
+        "errors": errors
+    })
+
 # --- NEW ROUTE TO CLEAR CACHE ---
 @app.route('/api/cache/clear', methods=['POST'])
 def clear_cache():

@@ -18,7 +18,10 @@ createApp({
             history: [], historyIndex: -1, favorites: [],
 
             // --- UI State ---
-            showFavorites: false, showSettings: false, isLoading: false, isRefreshing: false,
+            showFavorites: false, showSettings: false, isLoading: false, isRefreshing: false, showUploadModal: false,
+
+            // --- Upload State ---
+            uploadTargetFolder: '', uploadItems: [], isDraggingOver: false, uploadProgress: 0, isUploading: false, isTargetFolderDisabled: false,
 
             // --- Navigation Input State ---
             isEditingIndex: false,
@@ -593,7 +596,208 @@ createApp({
             else if (e.key.toLowerCase() === 'g') { this.grayscaleMode = !this.grayscaleMode; if (this.grayscaleMode) this.posterizeMode = false; }
             else if (e.key.toLowerCase() === 'p') this.togglePosterize();
             else if (e.key.toLowerCase() === 'm') this.toggleFavorite();
-            else if (e.key === 'Escape') { this.showSettings = false; this.showFavorites = false; this.isEditingIndex = false; }
+            else if (e.key === 'Escape') { this.showSettings = false; this.showFavorites = false; this.isEditingIndex = false; this.showUploadModal = false; }
+        },
+        // --- UPLOAD LOGIC ---
+        openUploadModal() {
+            this.showUploadModal = true;
+            this.resetUploadState();
+        },
+        resetUploadState() {
+            this.uploadItems = [];
+            this.uploadTargetFolder = '';
+            this.isDraggingOver = false;
+            this.uploadProgress = 0;
+            this.isUploading = false;
+            this.isTargetFolderDisabled = false;
+        },
+        async handleDrop(e) {
+            this.isDraggingOver = false;
+            const items = e.dataTransfer.items;
+            if (!items) return;
+
+            const queue = [];
+            // Use webkitGetAsEntry for recursive folder scanning
+            for (let i = 0; i < items.length; i++) {
+                const entry = items[i].webkitGetAsEntry();
+                if (entry) {
+                    queue.push(this.traverseFileTree(entry));
+                }
+            }
+
+            // Wait for all scanning to complete
+            const results = await Promise.all(queue);
+            const flatResults = results.flat();
+
+            this.processUploadQueue(flatResults);
+        },
+        async traverseFileTree(item, path = '') {
+            const VALID_EXTENSIONS = ['.png', '.jpg', '.jpeg', '.gif', '.bmp', '.webp'];
+            if (item.isFile) {
+                return new Promise((resolve) => {
+                    item.file((file) => {
+                        const ext = '.' + file.name.split('.').pop().toLowerCase();
+                        if (VALID_EXTENSIONS.includes(ext)) {
+                            resolve([{
+                                file: file,
+                                name: file.name,
+                                fullPath: path + file.name,
+                                isFile: true,
+                                entry: item
+                            }]);
+                        } else {
+                            resolve([]);
+                        }
+                    });
+                });
+            } else if (item.isDirectory) {
+                const dirReader = item.createReader();
+                const entries = [];
+
+                const readEntries = async () => {
+                    const result = await new Promise((resolve) => {
+                        dirReader.readEntries((res) => resolve(res), (err) => resolve([]));
+                    });
+
+                    if (result.length > 0) {
+                        entries.push(...result);
+                        await readEntries(); // Continue reading (readEntries returns max 100 items)
+                    }
+                };
+
+                await readEntries();
+
+                const promises = entries.map(entry => this.traverseFileTree(entry, path + item.name + '/'));
+                const results = await Promise.all(promises);
+                return results.flat();
+            }
+            return [];
+        },
+        processUploadQueue(newItems) {
+            // Determine if we have multiple root folders
+            // We look at the top-level folders in the new items
+            const roots = new Set();
+            newItems.forEach(item => {
+                const parts = item.fullPath.split('/');
+                if (parts.length > 1) {
+                    roots.add(parts[0]);
+                }
+            });
+
+            // Logic for Target Folder Input State
+            // If multiple folders are dropped, disable input
+            // If mix of files and folders, we might want to force a target or allow default
+
+            // Current requirement: 
+            // "If multiple folders are selected the target_folder input text must be disabled...
+            // if a mix of images and folders are dropped all of them will go inside target_folder."
+
+            const hasRootFiles = newItems.some(item => !item.fullPath.includes('/'));
+            const rootFolders = Array.from(roots);
+
+            // Logic Update:
+            // If we have ONLY folders (no root files), we disable target input and use original folder names.
+            // This applies to both single and multiple folders.
+            // If there are any files at the root level (mixed or just files), we use the target folder.
+
+            if (!hasRootFiles && rootFolders.length > 0) {
+                this.isTargetFolderDisabled = true;
+                this.uploadTargetFolder = '';
+            } else {
+                // Files present or mix: All go to target folder
+                this.isTargetFolderDisabled = false;
+                if (!this.uploadTargetFolder) this.uploadTargetFolder = 'Dropped';
+            }
+
+            // Process items to determine final destination
+            // We need to check for collisions with EXISTING folders in the app
+            // this.folders contains the list of root folders in BASE_DIR
+
+            // BETTER APPROACH: Calculate root mappings first
+            const rootMappings = {};
+            if (this.isTargetFolderDisabled) {
+                rootFolders.forEach(root => {
+                    let finalName = root;
+                    if (this.folders.includes(root)) {
+                        // Check if we already generated a mapping for this session? 
+                        // No, this is a fresh drop.
+                        // But wait, if I drop "Folder" twice? 
+                        // The collision check `this.folders.includes` checks the SERVER state.
+                        // It doesn't check against `rootMappings` (self-collision in batch? Unlikely for drag-drop).
+                        finalName = root + '_' + Date.now().toString().slice(-4);
+                    }
+                    rootMappings[root] = finalName;
+                });
+            }
+
+            const finalProcessed = newItems.map(item => {
+                let destination = '';
+                if (this.isTargetFolderDisabled) {
+                    const rootName = item.fullPath.split('/')[0];
+                    const finalRoot = rootMappings[rootName] || rootName;
+                    destination = item.fullPath.replace(rootName, finalRoot);
+                } else {
+                    destination = item.fullPath;
+                }
+                return { ...item, destination };
+            });
+
+            this.uploadItems = [...this.uploadItems, ...finalProcessed];
+        },
+        async uploadFiles() {
+            if (this.uploadItems.length === 0) return;
+            this.isUploading = true;
+            this.uploadProgress = 0;
+
+            const formData = new FormData();
+
+            // If target folder is enabled, we send it. 
+            // If disabled (multi-folder mode), we rely on the relative paths we constructed?
+            // Actually, the backend expects `target_folder` and `files`.
+            // But `files` in multipart don't carry the full path usually.
+            // We need a way to tell backend the destination for EACH file.
+
+            // Strategy:
+            // We will append files to formData.
+            // AND we will append a JSON map of filename -> destination path.
+            // OR we use the `webkitRelativePath` trick if supported, but we constructed our own paths.
+
+            // Let's send `target_folder` as the base.
+            // If `isTargetFolderDisabled`, we send empty target_folder, and the filenames MUST contain the root.
+
+            const target = this.isTargetFolderDisabled ? '' : this.uploadTargetFolder;
+            formData.append('target_folder', target);
+
+            this.uploadItems.forEach(item => {
+                // We rename the file object to include the relative path?
+                // No, we can't easily rename File objects.
+                // We can append the path as the filename in formData.
+                formData.append('files', item.file, item.destination);
+            });
+
+            const xhr = new XMLHttpRequest();
+
+            xhr.upload.addEventListener('progress', (e) => {
+                if (e.lengthComputable) {
+                    this.uploadProgress = Math.round((e.loaded * 100) / e.total);
+                }
+            });
+
+            xhr.onreadystatechange = () => {
+                if (xhr.readyState === 4) {
+                    this.isUploading = false;
+                    if (xhr.status === 200) {
+                        alert("Upload complete!");
+                        this.showUploadModal = false;
+                        this.refreshLibrary(); // Refresh to show new files
+                    } else {
+                        alert("Upload failed: " + xhr.statusText);
+                    }
+                }
+            };
+
+            xhr.open('POST', '/api/upload', true);
+            xhr.send(formData);
         }
     }
 }).mount('#app');
