@@ -9,6 +9,7 @@ import shutil
 from flask import Flask, render_template, jsonify, send_from_directory, request
 from flask_caching import Cache
 from dotenv import load_dotenv
+import numpy as np
 
 # Load environment variables from .env
 load_dotenv()
@@ -178,11 +179,13 @@ def api_random():
     if not allowed_folders:
         return jsonify({"error": "No folders selected"}), 400
 
+    allowed_top, inverse_index = np.unique([next(part for part in path.split(os.path.sep) if part) for path in allowed_folders], return_inverse=True)
+
     # Try up to 3 times to find a non-empty folder
-    # Try up to 3 times to find a non-empty folder to avoid returning 404 immediately
-    # if a selected folder happens to be empty.
     for _ in range(3):
-        chosen_folder_root = random.choice(allowed_folders)
+        # chosen_folder_root = random.choice(allowed_folders)
+        top_idx = random.choice(range(len(allowed_top)))
+        chosen_folder_root = allowed_folders[random.choice(np.where(inverse_index == top_idx)[0])]
         # This call is cached, so it's fast on subsequent requests
         images = get_all_images_in_subdir(chosen_folder_root)
         
