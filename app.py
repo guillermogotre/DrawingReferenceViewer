@@ -41,20 +41,36 @@ cache = Cache(app, config={
 
 # --- CACHED UTILITIES ---
 
-@cache.cached(key_prefix='folder_structure')
+@cache.cached(key_prefix='folder_structure_v2')
 def get_folder_structure():
     """
-    Scans root folders ignoring hidden ones (starting with a dot).
+    Scans root folders recursively to build a tree structure.
+    Returns a list of dicts: { "name": "...", "path": "...", "children": [...] }
     """
-    try:
-        folders = [
-            f for f in os.listdir(BASE_DIR) 
-            if os.path.isdir(os.path.join(BASE_DIR, f)) 
-            and not f.startswith('.')  # <--- FILTER
-        ]
-        return sorted(folders)
-    except FileNotFoundError:
-        return []
+    def scan_dir(dir_path, rel_path_prefix=''):
+        try:
+            # Use follow_symlinks=False to avoid loops and broken links
+            entries = sorted([
+                e for e in os.scandir(dir_path)
+                if e.is_dir(follow_symlinks=False) and not e.name.startswith('.')
+            ], key=lambda e: e.name.lower())
+        except OSError:
+            return []
+
+        tree = []
+        for entry in entries:
+            # Current relative path from BASE_DIR
+            current_rel_path = os.path.join(rel_path_prefix, entry.name)
+            
+            node = {
+                "name": entry.name,
+                "path": current_rel_path,
+                "children": scan_dir(entry.path, current_rel_path)
+            }
+            tree.append(node)
+        return tree
+
+    return scan_dir(BASE_DIR)
 
 @cache.memoize(timeout=86400)
 def get_all_images_in_subdir(subdir_name):

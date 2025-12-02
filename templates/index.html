@@ -239,25 +239,16 @@
                     </div>
                     <div
                         class="flex-1 overflow-y-auto custom-scroll bg-gray-900/30 rounded-xl border border-gray-800/50 p-2">
-                        <div v-if="filteredFolders.length === 0"
+                        <div v-if="filteredFolders.length === 0 && searchQuery"
                             class="flex flex-col items-center justify-center h-40 text-gray-500 gap-2">
                             <i data-lucide="folder-search" class="w-8 h-8 opacity-50"></i>
                             <p>No folders match your search.</p>
                         </div>
-                        <label v-for="folder in filteredFolders" :key="folder" @dblclick.prevent="selectOnly(folder)"
-                            title="Double click to select ONLY this folder"
-                            class="flex items-center gap-3 p-3 rounded-lg hover:bg-gray-800/50 cursor-pointer transition-colors select-none group">
-                            <div class="relative flex items-center justify-center w-5 h-5">
-                                <input type="checkbox" :value="folder" v-model="selectedFolders"
-                                    class="peer appearance-none w-5 h-5 border-2 border-gray-600 rounded checked:bg-indigo-500 checked:border-indigo-500 transition-colors">
-                                <i data-lucide="check"
-                                    class="absolute w-3.5 h-3.5 text-white opacity-0 peer-checked:opacity-100 pointer-events-none transition-opacity"></i>
-                            </div>
-                            <i data-lucide="folder"
-                                class="w-4 h-4 text-gray-500 group-hover:text-indigo-400 transition-colors"></i>
-                            <span class="text-sm text-gray-300 group-hover:text-white transition-colors break-all">{{
-                                folder }}</span>
-                        </label>
+
+                        <!-- Recursive Tree View -->
+                        <folder-tree-item v-for="folder in folders" :key="folder.path" :folder="folder"
+                            :selected-folders="selectedFolders" :search-query="searchQuery"
+                            @toggle-selection="toggleFolderSelection" @select-only="selectOnly"></folder-tree-item>
                     </div>
                     <div class="flex justify-end gap-3 pt-6 border-t border-gray-800 shrink-0 mt-2">
                         <button @click="showSettings = false"
@@ -467,6 +458,7 @@
     </div>
     {% endraw %}
 
+    <!-- Main App Logic -->
     <script src="{{ url_for('static', filename='js/app.js') }}"></script>
 </body>
 
