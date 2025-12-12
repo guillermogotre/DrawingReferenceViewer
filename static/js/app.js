@@ -354,6 +354,7 @@ createApp({
     },
     mounted() {
         this.fetchFolders();
+        this.fetchFavorites();
         window.addEventListener('keydown', this.handleKey);
         window.addEventListener('mousemove', this.dragStop);
         window.addEventListener('mouseup', this.stopDragStop);
