@@ -12,6 +12,7 @@ A lightweight, self-hosted web application for browsing and viewing local drawin
 *   **Context Navigation:** Navigate to sibling files within the same folder without leaving the viewer.
 *   **Favorites:** Mark images as favorites for quick access later.
 *   **Posterization Tool:** Advanced grayscale posterization with customizable thresholds for value studies.
+*   **Grid Overlay:** Fixed grid overlay with adjustable size for proportion studies.
 *   **Mobile Ready:** Fully responsive design with touch gestures for zooming, panning, and interacting with tools.
 *   **Performance:** Server-side caching for handling libraries with thousands of images.
 
@@ -61,6 +62,7 @@ A lightweight, self-hosted web application for browsing and viewing local drawin
 | `R` | Rotate 90° |
 | `G` | Toggle Grayscale |
 | `P` | Toggle Posterization |
+| `H` | Toggle Grid Overlay |
 | `M` | Toggle Favorite |
 | `ESC` | Close Menus |
 
@@ -89,6 +91,15 @@ The **Posterization Filter** allows you to break down an image into distinct ton
     *   **Add:** Click anywhere on the track to add a new threshold.
     *   **Adjust:** Drag handles to change where the value transitions occur.
     *   **Remove:** Double-click (or double-tap) a handle to remove it.
+
+## Grid Overlay
+
+The **Grid Overlay** provides a fixed reference grid on top of the viewport to help you judge proportions and angles.
+
+*   **Activation:** Click the "Grid" icon in the bottom toolbar.
+*   **Behavior:** The grid remains fixed ("stuck" to the screen) while you pan and zoom the image behind it. This simulates a physical grid overlay on your monitor.
+*   **Controls:**
+    *   **Size Slider:** Adjust the size of the grid squares in real-time.
 
 ## Deployment
 

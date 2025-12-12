@@ -203,6 +203,11 @@ createApp({
             lastStopTap: 0, // For double tap detection
             ticking: false, // For RAF throttling
             repaintKey: 0, // For forcing mobile repaints
+
+            // --- Grid State ---
+            gridMode: false,
+            showGridUI: false,
+            gridSize: 50,
         }
     },
     // ... (computed properties remain mostly the same, filteredFolders removed as logic moved to component)
@@ -309,6 +314,16 @@ createApp({
             }
 
             return style;
+        },
+        gridStyle() {
+            const size = this.gridSize;
+            return {
+                backgroundImage: `
+                    linear-gradient(to right, rgba(255, 255, 255, 0.3) 1px, transparent 1px),
+                    linear-gradient(to bottom, rgba(255, 255, 255, 0.3) 1px, transparent 1px)
+                `,
+                backgroundSize: `${size}px ${size}px`
+            };
         }
     },
     watch: {
@@ -740,6 +755,21 @@ createApp({
                 }
             }
         },
+        toggleGrid() {
+            if (!this.gridMode) {
+                this.gridMode = true;
+                this.showGridUI = true;
+                this.uiVisible = true;
+            } else {
+                if (!this.showGridUI) {
+                    this.showGridUI = true;
+                    this.uiVisible = true;
+                } else {
+                    this.gridMode = false;
+                    this.showGridUI = false;
+                }
+            }
+        },
         addThreshold(e) {
             if (this.$refs.sliderTrack && (e.target === this.$refs.sliderTrack || e.target.parentElement === this.$refs.sliderTrack)) {
                 const rect = this.$refs.sliderTrack.getBoundingClientRect();
@@ -827,6 +857,7 @@ createApp({
             else if (e.key.toLowerCase() === 'r') this.rotateRight();
             else if (e.key.toLowerCase() === 'g') { this.grayscaleMode = !this.grayscaleMode; if (this.grayscaleMode) this.posterizeMode = false; }
             else if (e.key.toLowerCase() === 'p') this.togglePosterize();
+            else if (e.key.toLowerCase() === 'h') this.toggleGrid();
             else if (e.key.toLowerCase() === 'm') this.toggleFavorite();
             else if (e.key === 'Escape') { this.showSettings = false; this.showFavorites = false; this.isEditingIndex = false; this.showUploadModal = false; }
         },

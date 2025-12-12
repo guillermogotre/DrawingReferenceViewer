@@ -63,6 +63,9 @@
                 </div>
             </transition>
 
+            <!-- Grid Overlay -->
+            <div v-show="gridMode" class="absolute inset-0 z-10 pointer-events-none" :style="gridStyle"></div>
+
             <!-- Image Layer -->
             <!-- transform-layer handles pan/zoom -->
             <div class="transform-layer" :style="layerStyle">
@@ -180,6 +183,10 @@
                             <button @click="togglePosterize" title="Posterize (P)" class="ui-btn"
                                 :class="posterizeMode ? 'btn-active' : ''">
                                 <i data-lucide="layers" class="w-5 h-5"></i>
+                            </button>
+                            <button @click="toggleGrid" title="Grid" class="ui-btn"
+                                :class="gridMode ? 'btn-active' : ''">
+                                <i data-lucide="grid" class="w-5 h-5"></i>
                             </button>
                             <button
                                 @click="grayscaleMode = !grayscaleMode; if(grayscaleMode) { posterizeMode = false; showPosterizeUI = false; }"
@@ -346,6 +353,27 @@
                         <span>BLACK</span>
                         <span class="text-gray-400">Double-click handle to remove</span>
                         <span>WHITE</span>
+                    </div>
+                </div>
+            </div>
+        </transition>
+
+        <transition name="fade">
+            <div v-if="gridMode && showGridUI && uiVisible"
+                class="absolute bottom-20 left-1/2 -translate-x-1/2 z-40 w-full max-w-md px-4">
+                <div class="ui-element flex flex-col gap-3 shadow-2xl border border-gray-700/50">
+                    <div class="flex justify-between items-center">
+                        <span class="text-xs font-bold text-gray-400 uppercase tracking-wider">Grid Size</span>
+                        <button @click="showGridUI = false" class="text-gray-400 hover:text-white"><i data-lucide="x"
+                                class="w-4 h-4"></i></button>
+                    </div>
+
+                    <!-- Grid Size Slider -->
+                    <div class="flex items-center gap-4">
+                        <span class="text-xs text-gray-400 w-8">Small</span>
+                        <input type="range" v-model.number="gridSize" min="20" max="200" step="5"
+                            class="w-full h-2 bg-gray-700 rounded-lg appearance-none cursor-pointer">
+                        <span class="text-xs text-gray-400 w-8">Large</span>
                     </div>
                 </div>
             </div>
